@@ -1,0 +1,20 @@
+#!/bin/busybox sh
+# Minimal Linux diagnostic init; no installation, storage mounts, module loads,
+# network configuration, firmware writes, or boot-chain modification.
+export PATH=/bin
+/bin/busybox mount -t proc -o ro proc /proc || echo "proc unavailable"
+/bin/busybox mount -t sysfs -o ro sysfs /sys || echo "sysfs unavailable"
+/bin/busybox mount -t devtmpfs devtmpfs /dev || echo "devtmpfs unavailable"
+echo "J72s RAM diagnostic environment -- experimental Linux, not Android"
+echo "No physical storage is mounted by this init."
+if [ ! -r /proc/device-tree/compatible ]; then
+    echo "Board identity unavailable; skipping hardware diagnostic."
+elif /bin/busybox tr '\000' '\n' < /proc/device-tree/compatible | /bin/busybox grep -Fxq apple,j72s; then
+    /bin/hw-report
+    /bin/j72s-probe
+    echo "Diagnostics finished. Presence of a device node is not proof of driver functionality."
+else
+    echo "Board is not J72s; skipping hardware diagnostic."
+fi
+echo "No automatic reboot or install. Use an approved recovery procedure to leave the test."
+while true; do /bin/busybox sleep 60; done
