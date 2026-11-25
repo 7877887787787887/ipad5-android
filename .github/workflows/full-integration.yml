@@ -43,14 +43,20 @@ jobs:
         run: |
           set -euo pipefail
           (cd kernel && sha256sum -c SHA256SUMS)
-          sudo tar -xf kernel/modules.tar.gz -C rootfs
+          mkdir -p modules-staging
+          tar -xf kernel/modules.tar.gz -C modules-staging
+          test -L rootfs/lib
+          sudo mkdir -p rootfs/usr/lib/modules
+          sudo cp -a modules-staging/lib/modules/. rootfs/usr/lib/modules/
+          test -L rootfs/lib
+          sudo chroot rootfs /bin/sh -c 'exit 0'
           sudo install -m 755 validation/full-hardware.sh rootfs/usr/local/bin/j72s-hardware-inventory
           sudo install -m 755 validated/device-interfaces rootfs/usr/local/bin/j72s-device-interfaces
           mkdir -p out
           sudo chroot rootfs /usr/local/bin/j72s-device-interfaces --self-test
-          sudo chroot rootfs sh -n /usr/local/bin/j72s-hardware-inventory
+          sudo chroot rootfs /bin/sh -n /usr/local/bin/j72s-hardware-inventory
           sudo chroot rootfs dpkg-query -W > out/packages.txt
-          sudo chroot rootfs sh -c 'for x in aplay arecord iw btmgmt v4l2-ctl iperf3 ethtool lsusb modetest modinfo ip; do command -v "$x" || exit 1; done' | tee out/tools.txt
+          sudo chroot rootfs /bin/sh -c 'export PATH=/usr/sbin:/usr/bin:/sbin:/bin; for x in aplay arecord iw btmgmt v4l2-ctl iperf3 ethtool lsusb modetest modinfo ip; do command -v "$x" || exit 1; done' | tee out/tools.txt
           cp integration/acceptance.json kernel/kernel-release.txt out/
           cp kernel/Image.gz kernel/s8000-j72s.dtb out/
           sudo tar --numeric-owner -C rootfs -cf - . | zstd -T2 -6 -o out/linux-integration-rootfs.tar.zst
