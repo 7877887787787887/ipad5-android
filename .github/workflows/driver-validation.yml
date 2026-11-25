@@ -1,0 +1,60 @@
+name: J72s driver bundle validation
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'validation/**'
+      - '.github/workflows/driver-validation.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  validate:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install compiler and module inspection tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdrm-dev kmod device-tree-compiler
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: 45718078103
+          name: j72s-compile-only
+          path: kernel
+      - name: Compile and test ARM64 hardware interface diagnostic
+        run: |
+          mkdir -p out
+          gcc -std=gnu11 -O2 -Wall -Wextra -Werror -static -Wl,-z,max-page-size=16384 -I/usr/include/libdrm validation/device_interfaces.c -o out/device-interfaces
+          ./out/device-interfaces --self-test
+          readelf -h -lW out/device-interfaces > out/elf.txt
+      - name: Validate module version and device tree
+        run: |
+          set -euo pipefail
+          (cd kernel && sha256sum -c SHA256SUMS)
+          version=$(cat kernel/kernel-release.txt)
+          mkdir -p modules
+          tar -xf kernel/modules.tar.gz -C modules
+          test -d "modules/lib/modules/$version"
+          printf 'Kernel release: %s\n' "$version" | tee out/module-abi.txt
+          count=0
+          while IFS= read -r -d '' module; do
+            abi=$(modinfo -F vermagic "$module")
+            test "${abi%% *}" = "$version"
+            printf '%s: %s\n' "${module#modules/}" "$abi" >> out/module-abi.txt
+            count=$((count+1))
+          done < <(find modules -type f \( -name '*.ko' -o -name '*.ko.xz' -o -name '*.ko.zst' -o -name '*.ko.gz' \) -print0)
+          test "$count" -gt 0
+          echo "Verified $count module ABI strings" | tee -a out/module-abi.txt
+          fdtget -t s kernel/s8000-j72s.dtb / compatible | tee out/board.txt
+          grep -qw apple,j72s out/board.txt
+          dtc -I dtb -O dts kernel/s8000-j72s.dtb > out/board.dts 2>out/dtc-warnings.txt
+          printf '%s\n' 'ABI and static device-tree inspection only; physical hardware, firmware, Android HALs, and boot remain unverified.' > out/limitations.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: j72s-driver-validation
+          path: out/
+          retention-days: 7
