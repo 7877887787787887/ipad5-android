@@ -1,0 +1,33 @@
+name: J72s Android runtime probe (compile only)
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'android-stage/**'
+      - '.github/workflows/android-runtime-probe.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile static ARM64 probe with 16 KiB ELF alignment
+        run: |
+          mkdir -p probe-artifacts
+          test "$(uname -m)" = aarch64
+          gcc -std=gnu11 -Wall -Wextra -Werror -O2 -static -Wl,-z,max-page-size=16384 android-stage/probe.c -o probe-artifacts/j72s-probe
+          readelf -h -lW probe-artifacts/j72s-probe | tee probe-artifacts/elf.txt
+          python3 -c 'import subprocess; s=subprocess.check_output(["readelf","-lW","probe-artifacts/j72s-probe"],text=True); a=[int(l.split()[-1],16) for l in s.splitlines() if l.strip().startswith("LOAD ")]; assert a and all(x>=16384 for x in a),a'
+      - name: Execute runner self-test (not iPad hardware)
+        run: |
+          set -o pipefail
+          ./probe-artifacts/j72s-probe --self-test | tee probe-artifacts/self-test.txt
+          (cd probe-artifacts && sha256sum j72s-probe > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: j72s-runtime-probe
+          path: probe-artifacts/
+          retention-days: 7
