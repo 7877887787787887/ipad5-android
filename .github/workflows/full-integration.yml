@@ -1,0 +1,64 @@
+name: J72s full hardware integration staging
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'integration/**'
+      - 'validation/full-hardware.sh'
+      - '.github/workflows/full-integration.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  stage:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: 45718078103
+          name: j72s-compile-only
+          path: kernel
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: 45721086287
+          name: j72s-driver-validation
+          path: validated
+      - name: Prepare ARM64 Linux test userspace
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y debootstrap zstd
+          sudo debootstrap --arch=arm64 --variant=minbase noble rootfs http://ports.ubuntu.com/ubuntu-ports/
+          printf '#!/bin/sh\nexit 101\n' | sudo tee rootfs/usr/sbin/policy-rc.d >/dev/null
+          sudo chmod 755 rootfs/usr/sbin/policy-rc.d
+          printf 'deb http://ports.ubuntu.com/ubuntu-ports/ noble main universe\ndeb http://ports.ubuntu.com/ubuntu-ports/ noble-updates main universe\n' | sudo tee rootfs/etc/apt/sources.list >/dev/null
+          sudo chroot rootfs apt-get update
+          sudo chroot rootfs env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends alsa-utils iw bluez v4l-utils iperf3 ethtool usbutils libdrm-tests kmod iproute2 ca-certificates
+          sudo chroot rootfs apt-get clean
+      - name: Integrate exact kernel module bundle and validation utilities
+        run: |
+          set -euo pipefail
+          (cd kernel && sha256sum -c SHA256SUMS)
+          sudo tar -xf kernel/modules.tar.gz -C rootfs
+          sudo install -m 755 validation/full-hardware.sh rootfs/usr/local/bin/j72s-hardware-inventory
+          sudo install -m 755 validated/device-interfaces rootfs/usr/local/bin/j72s-device-interfaces
+          mkdir -p out
+          sudo chroot rootfs /usr/local/bin/j72s-device-interfaces --self-test
+          sudo chroot rootfs sh -n /usr/local/bin/j72s-hardware-inventory
+          sudo chroot rootfs dpkg-query -W > out/packages.txt
+          sudo chroot rootfs sh -c 'for x in aplay arecord iw btmgmt v4l2-ctl iperf3 ethtool lsusb modetest modinfo ip; do command -v "$x" || exit 1; done' | tee out/tools.txt
+          cp integration/acceptance.json kernel/kernel-release.txt out/
+          cp kernel/Image.gz kernel/s8000-j72s.dtb out/
+          sudo tar --numeric-owner -C rootfs -cf - . | zstd -T2 -6 -o out/linux-integration-rootfs.tar.zst
+          zstd -t out/linux-integration-rootfs.tar.zst
+          (cd out && sha256sum Image.gz s8000-j72s.dtb linux-integration-rootfs.tar.zst > SHA256SUMS)
+          printf '%s\n' 'Linux integration staging archive, NOT an Android ROM or flashable image. No hardware tests, firmware loading, or physical device access. Boot, Android HALs, and board-specific firmware remain unresolved.' > out/limitations.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: j72s-full-integration-staging
+          path: out/
+          retention-days: 7
