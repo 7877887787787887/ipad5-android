@@ -28,7 +28,7 @@ jobs:
       - name: Configure PowerVR Vulkan and Zink OpenGL
         run: |
           mkdir -p out
-          meson setup mesa/build mesa --prefix=/usr --buildtype=release -Dvulkan-drivers=imagination -Dgallium-drivers=zink,softpipe -Dplatforms=wayland -Dglx=disabled -Dllvm=disabled -Degl=enabled -Dgbm=enabled -Dgallium-va=disabled -Dgallium-vdpau=disabled -Dgallium-rusticl=false -Dvideo-codecs=[] -Dallow-fallback-for=libdrm,wayland-protocols
+          meson setup mesa/build mesa --prefix=/usr --buildtype=release -Dvulkan-drivers=imagination -Dgallium-drivers=zink,softpipe -Dplatforms=wayland -Dglx=disabled -Dllvm=disabled -Degl=enabled -Dgbm=enabled -Dgallium-va=disabled -Dgallium-rusticl=false -Dvideo-codecs=[] -Dallow-fallback-for=libdrm,wayland-protocols
       - name: Compile and stage native Linux userspace driver
         run: |
           ninja -C mesa/build -j2
