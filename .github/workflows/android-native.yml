@@ -1,0 +1,50 @@
+name: J72s Android native interfaces
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'android-stage/native_interfaces.c'
+      - '.github/workflows/android-native.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Locate installed Android NDK
+        run: |
+          set -euo pipefail
+          ndk="${ANDROID_NDK_HOME:-${ANDROID_NDK_LATEST_HOME:-}}"
+          if [ -z "$ndk" ] || [ ! -d "$ndk/toolchains/llvm" ]; then
+            ndk=$(find "$ANDROID_HOME/ndk" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          fi
+          test -d "$ndk/toolchains/llvm"
+          echo "NDK_ROOT=$ndk" >> "$GITHUB_ENV"
+          cat "$ndk/source.properties"
+      - name: Compile and link Android native executable
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          toolchain="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          "$toolchain/aarch64-linux-android35-clang" -std=c11 -O2 -Wall -Wextra -Werror -fPIE -pie -Wl,-z,max-page-size=16384 android-stage/native_interfaces.c -o out/native-interfaces -laaudio -lvulkan
+          "$toolchain/llvm-readelf" -h -lW -d out/native-interfaces | tee out/elf.txt
+          grep -q AArch64 out/elf.txt
+          grep -q /system/bin/linker64 out/elf.txt
+          grep -q libaaudio.so out/elf.txt
+          grep -q libvulkan.so out/elf.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          lines=Path('out/elf.txt').read_text().splitlines()
+          aligns=[int(x.split()[-1],16) for x in lines if x.strip().startswith('LOAD ')]
+          assert aligns and all(x>=16384 for x in aligns), aligns
+          PY
+          printf '%s\n' 'Android ARM64 Bionic diagnostic executable; not a HAL, driver, ROM or device test.' > out/limitations.txt
+          (cd out && sha256sum native-interfaces > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: j72s-android-native-interfaces
+          path: out/
+          retention-days: 7
