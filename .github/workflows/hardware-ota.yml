@@ -1,0 +1,73 @@
+name: J72s hardware inventory, menu and OTA prototypes
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'hardware-stage/**'
+      - '.github/workflows/hardware-ota.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  hardware:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile native diagnostic
+        run: |
+          mkdir -p out
+          gcc -O2 -Wall -Wextra -Werror -static -Wl,-z,max-page-size=16384 hardware-stage/hw_report.c -o out/hw-report
+          ./out/hw-report --self-test
+          readelf -h -lW out/hw-report > out/elf.txt
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: 45718078103
+          name: j72s-compile-only
+          path: kernel-audit
+      - name: Inspect actual compiled kernel and board artifacts
+        run: |
+          (cd kernel-audit && sha256sum -c SHA256SUMS)
+          sudo apt-get update
+          sudo apt-get install -y device-tree-compiler
+          fdtget -t s kernel-audit/s8000-j72s.dtb / compatible | tee out/board.txt
+          grep -q 'apple,j72s' out/board.txt
+          tar -tzf kernel-audit/modules.tar.gz > out/modules.txt
+          grep -E '^(# )?CONFIG_(DRM|INPUT|TOUCHSCREEN|BT|BRCM|CFG80211|MAC80211|POWER_SUPPLY|BATTERY|CHARGER|THERMAL|CPU_FREQ|DEVFREQ|BACKLIGHT|APPLE|NVME)' kernel-audit/candidate.config > out/driver-config.txt
+          echo 'Build inventory only; no physical hardware validation.' > out/limitations.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: j72s-hardware-inventory
+          path: out/
+  menu:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          mkdir -p out
+          gcc -O2 -Wall -Wextra -Werror -static -Wl,-z,max-page-size=16384 hardware-stage/menu.c -o out/menu-prototype
+          ./out/menu-prototype --self-test | tee out/test.txt
+          ./out/menu-prototype
+      - uses: actions/upload-artifact@v4
+        with:
+          name: j72s-menu-prototype
+          path: out/
+  ota:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify synthetic signed updates and rejection cases
+        run: |
+          mkdir -p out
+          set -o pipefail
+          python3 hardware-stage/ota_verify.py 2>&1 | tee out/test.txt
+          python3 -m py_compile hardware-stage/ota_verify.py
+          cp hardware-stage/ota_verify.py out/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: j72s-ota-verifier-prototype
+          path: out/
