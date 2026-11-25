@@ -1,0 +1,32 @@
+name: J72s Android candidate kernel (compile only)
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/kernel.yml'
+      - 'scripts/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compile:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install compiler dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bc bison flex libssl-dev libelf-dev dwarves cpio rsync zstd lz4 python3 curl xz-utils clang llvm lld
+      - name: Run audit tests
+        run: cd scripts && python3 -m unittest -v
+      - name: Build candidate kernel
+        run: bash scripts/build.sh
+      - name: Save build artifacts and audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: j72s-compile-only
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 7
