@@ -1,0 +1,122 @@
+{
+  "board": "apple,j72s",
+  "status": "unverified_on_device",
+  "features": [
+    {
+      "id": "display",
+      "interfaces": [
+        "DRM/KMS",
+        "backlight"
+      ],
+      "acceptance": "Native 2048x1536 output, stable refresh, brightness and suspend/resume"
+    },
+    {
+      "id": "touch",
+      "interfaces": [
+        "evdev"
+      ],
+      "acceptance": "Multitouch, coordinate mapping, rotation and latency"
+    },
+    {
+      "id": "gpu",
+      "interfaces": [
+        "PowerVR DRM",
+        "Mesa Vulkan",
+        "Zink"
+      ],
+      "acceptance": "Hardware rendering and graphics correctness; Android HAL separately required"
+    },
+    {
+      "id": "audio",
+      "interfaces": [
+        "ALSA",
+        "ASoC"
+      ],
+      "acceptance": "Both speakers, headphone routing, microphone and safe mixer limits"
+    },
+    {
+      "id": "wifi",
+      "interfaces": [
+        "cfg80211",
+        "brcmfmac"
+      ],
+      "acceptance": "2.4/5 GHz association, negotiated PHY rate, bidirectional throughput and reconnect; regulatory limits retained"
+    },
+    {
+      "id": "bluetooth",
+      "interfaces": [
+        "HCI",
+        "BlueZ"
+      ],
+      "acceptance": "Pairing, HID, audio and reconnect"
+    },
+    {
+      "id": "camera",
+      "interfaces": [
+        "V4L2"
+      ],
+      "acceptance": "Both cameras, exposure and video capture; driver missing until established"
+    },
+    {
+      "id": "sensors",
+      "interfaces": [
+        "IIO",
+        "evdev"
+      ],
+      "acceptance": "Accelerometer, gyroscope, rotation and ambient light"
+    },
+    {
+      "id": "cellular_gps",
+      "interfaces": [
+        "modem",
+        "GNSS"
+      ],
+      "acceptance": "LTE data and location; unsupported until drivers established"
+    },
+    {
+      "id": "power",
+      "interfaces": [
+        "power_supply",
+        "thermal",
+        "cpufreq"
+      ],
+      "acceptance": "Battery reporting, safe charging, suspend/resume, thermal limits and stable clocks"
+    },
+    {
+      "id": "storage",
+      "interfaces": [
+        "block"
+      ],
+      "acceptance": "Read-only enumeration first; isolated Android storage before write tests"
+    },
+    {
+      "id": "usb",
+      "interfaces": [
+        "USB host",
+        "USB gadget"
+      ],
+      "acceptance": "Enumeration and transfer with supported accessories"
+    },
+    {
+      "id": "touch_id",
+      "interfaces": [
+        "biometric HAL"
+      ],
+      "acceptance": "Unsupported until driver and secure integration exist"
+    },
+    {
+      "id": "ota",
+      "interfaces": [
+        "signed manifest"
+      ],
+      "acceptance": "Signed compatible package, atomic staging, rollback and recovery; installer not yet implemented"
+    },
+    {
+      "id": "boot",
+      "interfaces": [
+        "boot backend"
+      ],
+      "acceptance": "Independent boot and preserved iPadOS; backend not yet implemented"
+    }
+  ]
+}
