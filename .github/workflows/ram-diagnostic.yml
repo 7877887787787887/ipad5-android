@@ -1,0 +1,67 @@
+name: J72s RAM diagnostic archive (no device access)
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ram-stage/**'
+      - '.github/workflows/ram-diagnostic.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  package:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install native packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y busybox-static cpio binutils gcc
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: 45718078103
+          name: j72s-compile-only
+          path: kernel
+      - name: Validate inputs and create RAM-only archive
+        run: |
+          set -euo pipefail
+          (cd kernel && sha256sum -c SHA256SUMS)
+          grep -Fx 'CONFIG_BLK_DEV_INITRD=y' kernel/candidate.config
+          grep -Fx 'CONFIG_RD_GZIP=y' kernel/candidate.config
+          grep -Fx 'CONFIG_DEVTMPFS=y' kernel/candidate.config
+          mkdir -p rootfs/{bin,proc,sys,dev} out
+          install -m 755 "$(command -v busybox)" rootfs/bin/busybox
+          install -m 755 ram-stage/init rootfs/init
+          gcc -std=gnu11 -O2 -Wall -Wextra -Werror -static -Wl,-z,max-page-size=16384 hardware-stage/hw_report.c -o rootfs/bin/hw-report
+          gcc -std=gnu11 -O2 -Wall -Wextra -Werror -static -Wl,-z,max-page-size=16384 android-stage/probe.c -o rootfs/bin/j72s-probe
+          python3 - <<'PY'
+          import pathlib, subprocess
+          for p in pathlib.Path('rootfs/bin').iterdir():
+              h=subprocess.check_output(['readelf','-h',str(p)],text=True)
+              assert 'AArch64' in h, p
+              s=subprocess.check_output(['readelf','-lW',str(p)],text=True)
+              assert 'INTERP' not in s, p
+              a=[int(l.split()[-1],16) for l in s.splitlines() if l.strip().startswith('LOAD ')]
+              assert a and all(x>=16384 for x in a),(p,a)
+          PY
+          rootfs/bin/busybox sh -n rootfs/init
+          rootfs/bin/hw-report --self-test
+          rootfs/bin/j72s-probe --self-test
+          sudo mknod -m 600 rootfs/dev/console c 5 1
+          (cd rootfs && find . -print0 | LC_ALL=C sort -z | cpio --null -o -H newc --owner=0:0) | gzip -n -9 > out/diagnostic-initramfs.cpio.gz
+          gzip -t out/diagnostic-initramfs.cpio.gz
+          gzip -dc out/diagnostic-initramfs.cpio.gz | cpio -it > out/archive-list.txt
+          grep -Fx init out/archive-list.txt
+          grep -Fx bin/hw-report out/archive-list.txt
+          grep -Fx bin/j72s-probe out/archive-list.txt
+          cp kernel/Image.gz kernel/s8000-j72s.dtb out/
+          printf '%s\n' 'Experimental Linux diagnostic only. No Android userspace, no physical boot testing, no bootloader, no automatic module loading or physical storage mounts.' > out/README.txt
+          (cd out && sha256sum Image.gz s8000-j72s.dtb diagnostic-initramfs.cpio.gz > SHA256SUMS && sha256sum -c SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: j72s-ram-diagnostic
+          path: out/
+          retention-days: 7
