@@ -1,0 +1,32 @@
+name: Android 16 reference system audit
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/android-image-audit.yml'
+      - 'android-stage/audit_gsi.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install offline filesystem analysis tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y e2fsprogs android-sdk-libsparse-utils
+      - name: Acquire pinned AOSP reference (no Google services)
+        run: |
+          curl --fail --location --retry 2 --max-time 900 https://dl.google.com/developers/android/baklava/images/gsi/aosp_arm64-exp-BP3A.250905.014-13873947-f9b599ff.zip -o "$RUNNER_TEMP/gsi.zip"
+          echo "f9b599ff32b5bb574575b8a33ee17ff1d3354c9482b72fb10e2d13c16c0e12bb  $RUNNER_TEMP/gsi.zip" | sha256sum -c -
+      - name: Audit filesystem and sample ARM64 executables
+        run: python3 android-stage/audit_gsi.py "$RUNNER_TEMP/gsi.zip" image-audit/report.json
+      - name: Save audit evidence only
+        uses: actions/upload-artifact@v4
+        with:
+          name: android16-reference-audit
+          path: image-audit/report.json
+          retention-days: 7
