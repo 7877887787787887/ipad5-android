@@ -1,0 +1,40 @@
+name: J72s performance operating point audit
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'performance/**'
+      - '.github/workflows/performance-audit.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y device-tree-compiler
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: 45718078103
+          name: j72s-compile-only
+          path: kernel
+      - name: Verify profile constraints and inspect operating points
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          (cd kernel && sha256sum -c SHA256SUMS)
+          python3 performance/audit_clock.py --self-test 2>&1 | tee out/tests.txt
+          python3 performance/audit_clock.py --dtb kernel/s8000-j72s.dtb --out out/operating-points.json
+          grep -E '^(# )?CONFIG_(CPU_FREQ|CPU_IDLE|DEVFREQ|PM_OPP|THERMAL|ENERGY_MODEL|SCHED|ZRAM|ZSWAP)' kernel/candidate.config > out/performance-config.txt
+          cp kernel/kernel-release.txt out/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: j72s-performance-audit
+          path: out/
+          retention-days: 7
