@@ -21,14 +21,15 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build python3-venv python3-dev pkg-config build-essential bison flex libdrm-dev libexpat1-dev libzstd-dev zlib1g-dev libelf-dev libudev-dev libwayland-dev wayland-protocols libxkbcommon-dev
+          sudo apt-get install -y ninja-build python3-venv python3-dev pkg-config build-essential bison flex libdrm-dev libexpat1-dev libzstd-dev zlib1g-dev libelf-dev libudev-dev libwayland-dev wayland-protocols libxkbcommon-dev llvm-18-dev libclang-18-dev libclang-cpp18-dev libllvmspirvlib-18-dev spirv-tools libclc-18-dev
+          echo /usr/lib/llvm-18/bin >> "$GITHUB_PATH"
           python3 -m venv "$RUNNER_TEMP/mesa-env"
           "$RUNNER_TEMP/mesa-env/bin/pip" install 'meson>=1.4,<2' mako packaging pyyaml
           echo "$RUNNER_TEMP/mesa-env/bin" >> "$GITHUB_PATH"
-      - name: Configure PowerVR Vulkan and Zink OpenGL
+      - name: Configure PowerVR Vulkan and Zink (headless first build)
         run: |
           mkdir -p out
-          meson setup mesa/build mesa --prefix=/usr --buildtype=release -Dvulkan-drivers=imagination -Dgallium-drivers=zink,softpipe -Dplatforms=wayland -Dglx=disabled -Dllvm=disabled -Degl=enabled -Dgbm=enabled -Dgallium-va=disabled -Dgallium-rusticl=false -Dvideo-codecs=[] -Dallow-fallback-for=libdrm
+          meson setup mesa/build mesa --prefix=/usr --buildtype=release -Dvulkan-drivers=imagination -Dgallium-drivers=zink,softpipe -Dplatforms=[] -Dglx=disabled -Dllvm=enabled -Degl=enabled -Dgbm=enabled -Dgallium-va=disabled -Dgallium-rusticl=false -Dvideo-codecs=[] -Dallow-fallback-for=libdrm
       - name: Compile and stage native Linux userspace driver
         run: |
           ninja -C mesa/build -j2
@@ -39,7 +40,7 @@ jobs:
           tar -czf out/mesa-a9-linux.tar.gz -C out/stage .
           rm -rf out/stage
           (cd out && sha256sum mesa-a9-linux.tar.gz > SHA256SUMS)
-          echo 'Linux/glibc compile only; not an Android/Bionic HAL or tested on J72s.' > out/limitations.txt
+          echo 'Headless Linux/glibc compile only; Wayland/display integration and Android/Bionic HAL are separate; not tested on J72s.' > out/limitations.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
