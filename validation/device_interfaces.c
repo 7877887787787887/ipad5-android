@@ -36,6 +36,30 @@ static bool is_direct_multitouch(const struct touch_caps *caps)
         caps->slot.maximum < 64;
 }
 
+static bool has_board_buttons(const unsigned char *keys)
+{
+    return has_bit(keys, KEY_HOMEPAGE) && has_bit(keys, KEY_POWER) &&
+        has_bit(keys, KEY_VOLUMEDOWN) && has_bit(keys, KEY_VOLUMEUP);
+}
+
+static void describe_board_controls(int fd, const char *name, const unsigned char *keys)
+{
+    if (strcmp(name, "gpio-keys") == 0 && keys && has_board_buttons(keys))
+        puts("  iPad GPIO Home, Power, Volume Down and Volume Up keys advertised");
+
+    if (strcmp(name, "iPad Smart Cover") != 0)
+        return;
+    unsigned char switches[SW_MAX / 8 + 1] = {0};
+    if (ioctl(fd, EVIOCGBIT(EV_SW, sizeof(switches)), switches) < 0 ||
+        !has_bit(switches, SW_MACHINE_COVER))
+        return;
+    unsigned char state[SW_MAX / 8 + 1] = {0};
+    if (ioctl(fd, EVIOCGSW(sizeof(state)), state) >= 0)
+        printf("  Smart Cover raw switch state %d\n", has_bit(state, SW_MACHINE_COVER));
+    else
+        puts("  Smart Cover switch advertised; current state unavailable");
+}
+
 static void describe_input(int fd, const char *path)
 {
     char name[128] = {0};
@@ -53,8 +77,10 @@ static void describe_input(int fd, const char *path)
     if (ioctl(fd, EVIOCGABS(ABS_MT_SLOT), &caps.slot) == 0)
         printf("  slot range %d..%d\n", caps.slot.minimum, caps.slot.maximum);
 
-    if (ioctl(fd, EVIOCGPROP(sizeof(properties)), properties) < 0 ||
-        ioctl(fd, EVIOCGBIT(EV_KEY, sizeof(keys)), keys) < 0 ||
+    const bool have_keys = ioctl(fd, EVIOCGBIT(EV_KEY, sizeof(keys)), keys) >= 0;
+    describe_board_controls(fd, name, have_keys ? keys : NULL);
+    if (!have_keys ||
+        ioctl(fd, EVIOCGPROP(sizeof(properties)), properties) < 0 ||
         ioctl(fd, EVIOCGBIT(EV_ABS, sizeof(axes)), axes) < 0)
         return;
 
@@ -64,6 +90,18 @@ static void describe_input(int fd, const char *path)
     if (is_direct_multitouch(&caps))
         printf("  direct Type-B multitouch advertised (%d slots)\n",
                caps.slot.maximum + 1);
+}
+
+static bool buttons_self_test(void)
+{
+    static const unsigned int codes[] = {KEY_HOMEPAGE, KEY_POWER, KEY_VOLUMEDOWN, KEY_VOLUMEUP};
+    unsigned char keys[KEY_MAX / 8 + 1] = {0};
+    for (size_t i = 0; i < sizeof(codes) / sizeof(codes[0]); ++i) {
+        if (has_board_buttons(keys))
+            return false;
+        keys[codes[i] / 8] |= 1U << (codes[i] % 8);
+    }
+    return has_board_buttons(keys);
 }
 
 static bool touch_self_test(void)
@@ -155,7 +193,11 @@ int main(int argc,char **argv){
             fputs("multitouch capability self-test failed\n", stderr);
             return 1;
         }
-        puts("read-only device access and multitouch capability self-tests passed");
+        if (!buttons_self_test()) {
+            fputs("GPIO buttons capability self-test failed\n", stderr);
+            return 1;
+        }
+        puts("read-only device access, multitouch and GPIO buttons capability self-tests passed");
         return 0;
     }
     scan("/dev/dri/card*",0);

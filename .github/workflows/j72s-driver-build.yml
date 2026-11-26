@@ -33,12 +33,12 @@ jobs:
       - name: Install kernel build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential bc bison flex libssl-dev libelf-dev dwarves cpio rsync zstd lz4 python3 curl xz-utils clang llvm lld
+          sudo apt-get install -y build-essential bc bison flex libssl-dev libelf-dev dwarves cpio rsync zstd lz4 python3 curl xz-utils clang llvm lld patch
       - name: Compile the J72s kernel and DTB
         run: bash scripts/build.sh
-      - name: Verify the low-RAM kernel prerequisites
+      - name: Verify the Android kernel prerequisites
         run: |
-          for option in MEMCG PSI SWAP ZRAM; do
+          for option in MEMCG PSI SWAP ZRAM DMABUF_HEAPS DMABUF_HEAPS_SYSTEM; do
             grep -Fx "CONFIG_${option}=y" artifacts/candidate.config
           done
           (cd artifacts && sha256sum -c SHA256SUMS)

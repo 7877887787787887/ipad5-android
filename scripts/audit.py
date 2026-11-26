@@ -14,7 +14,8 @@ def parse(text):
     return data
 
 CORE = ['ARM64_16K_PAGES','ANDROID_BINDER_IPC','SECURITY_SELINUX','CGROUPS','MEMCG','TMPFS','BLK_DEV_INITRD','SECCOMP_FILTER','BPF_SYSCALL']
-CANDIDATE = ['ANDROID_BINDERFS','CGROUP_BPF','EROFS_FS','DM_VERITY','F2FS_FS']
+CANDIDATE = ['ANDROID_BINDERFS','CGROUP_BPF','EROFS_FS','DM_VERITY','F2FS_FS',
+             'DMABUF_HEAPS','DMABUF_HEAPS_SYSTEM']
 
 def audit(cfg):
     def state(items): return {k: cfg.get('CONFIG_'+k, 'unknown') for k in items}
