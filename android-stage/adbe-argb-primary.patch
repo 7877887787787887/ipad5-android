@@ -1,0 +1,13 @@
+diff --git a/drivers/gpu/drm/adbe/adbe_drv.c b/drivers/gpu/drm/adbe/adbe_drv.c
+--- a/drivers/gpu/drm/adbe/adbe_drv.c
++++ b/drivers/gpu/drm/adbe/adbe_drv.c
+@@ -860,7 +860,9 @@ static const struct drm_plane_funcs adbe_plane_funcs = {
+ };
+ 
+ static const u32 adbe_formats[] = {
+ 	DRM_FORMAT_XRGB8888,
++	/* Same scanout byte layout. This sole primary plane ignores alpha. */
++	DRM_FORMAT_ARGB8888,
+ };
+ 
+ static const u64 adbe_modifiers[] = {

@@ -1,32 +1,55 @@
-name: J72s Android candidate kernel (compile only)
+name: iPad 5 Android candidate kernel (compile only)
 on:
   push:
-    branches: [main]
+    branches: [main, codex/j72t-kernel-build]
     paths:
       - '.github/workflows/kernel.yml'
       - 'scripts/**'
   workflow_dispatch:
+    inputs:
+      board:
+        description: iPad 5 board
+        required: true
+        default: j72s
+        type: choice
+        options:
+          - j72s
+          - j72t
 permissions:
   contents: read
 jobs:
   compile:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 180
+    env:
+      KERNEL_BOARD: ${{ inputs.board || (github.ref_name == 'codex/j72t-kernel-build' && 'j72t' || 'j72s') }}
     steps:
       - uses: actions/checkout@v4
       - name: Install compiler dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential bc bison flex libssl-dev libelf-dev dwarves cpio rsync zstd lz4 python3 curl xz-utils clang llvm lld
+          sudo apt-get install -y build-essential bc bison flex libssl-dev libelf-dev dwarves cpio rsync zstd lz4 python3 curl xz-utils clang llvm lld kmod
       - name: Run audit tests
         run: cd scripts && python3 -m unittest -v
       - name: Build candidate kernel
+        env:
+          BUILD_OUTPUT_DIR: ${{ github.workspace }}/artifacts
         run: bash scripts/build.sh
+      - name: Stage the J72t internal NVMe overlay
+        if: env.KERNEL_BOARD == 'j72t'
+        run: |
+          set -euo pipefail
+          work=$(mktemp -d "$RUNNER_TEMP/j72t-nvme.XXXXXX")
+          python3 scripts/stage_j72s_early_storage.py --transport internal-nvme artifacts "$work/overlay"
+          tar -C "$work/overlay" -czf artifacts/j72t-internal-nvme-overlay.tar.gz .
+          cd artifacts
+          sha256sum kernel-release.txt j72t-internal-nvme-overlay.tar.gz >> SHA256SUMS
+          sha256sum -c SHA256SUMS
       - name: Save build artifacts and audit evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: j72s-compile-only
+          name: ${{ env.KERNEL_BOARD }}-compile-only
           path: artifacts/
           if-no-files-found: warn
           retention-days: 7
