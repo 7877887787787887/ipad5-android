@@ -3,7 +3,7 @@
 ## J72s vendor product
 
 Place this checkout at `device/apple/j72s-port` in an Android 16 source
-tree. The `j72s_vendor-trunk_staging-userdebug` target builds the vendor
+tree. The `j72s_vendor-aosp_current-userdebug` target builds the vendor
 filesystem for integration with the Android 16 ARM64 system image. The
 kernel and DTB are built separately. Use the matching kernel and DTB
 for the modules in the vendor image.
@@ -67,7 +67,7 @@ From the AOSP root, the build entry point is:
 
 ```sh
 source build/envsetup.sh
-lunch j72s_vendor-trunk_staging-userdebug
+lunch j72s_vendor-aosp_current-userdebug
 m vendorimage
 ```
 

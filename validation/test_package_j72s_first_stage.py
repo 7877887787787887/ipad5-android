@@ -107,6 +107,11 @@ class PackageFirstStageTest(unittest.TestCase):
         self.assertFalse(config["data_mount_configured"])
         self.assertFalse(config["hardware_tested"])
         self.assertTrue(config["runtime_requires_verified_read_only_media"])
+        userdata = config["encrypted_userdata_preflight"]
+        self.assertEqual(userdata["required_kernel_options_missing"], list(boot.USERDATA_CONFIG))
+        self.assertEqual(userdata["missing_dedicated_partitions"], ["data", "metadata"])
+        self.assertFalse(userdata["late_fs_mount_configured"])
+        self.assertIsNone(userdata["visible_vendor_keymint_default_manifest"])
         self.assertIn(f"androidboot.boot_part_uuid={media.SYSTEM_GUID}", (out / "kernel-args.txt").read_text())
         self.assertEqual(self.inputs.media_image.read_bytes(), before)
 
@@ -164,6 +169,29 @@ class PackageFirstStageTest(unittest.TestCase):
             archive.add(overlay, arcname=".")
         with self.assertRaisesRegex(ValueError, "Unexpected or duplicate storage overlay entry"):
             boot.verify_storage_overlay(self.inputs.early_storage, overlay)
+
+    def test_reports_vendor_keymint_declaration_without_claiming_runtime_ready(self):
+        manifest_path = "etc/vintf/manifest/keymint.xml"
+        for declaration in (
+            "<fqname>IKeyMintDevice/default</fqname>",
+            "<interface><name>IKeyMintDevice</name><instance>default</instance></interface>",
+        ):
+            with self.subTest(declaration=declaration):
+                vendor = self.fixture.write_ext_image(
+                    f"vendor-keymint-{len(declaration)}", manifest_path,
+                    '<manifest type="device" version="1.0"><hal format="aidl">'
+                    "<name>android.hardware.security.keymint</name>"
+                    f"{declaration}</hal></manifest>",
+                )
+                report = boot.userdata_preflight(
+                    boot.USERDATA_CONFIG, vendor,
+                    {"dedicated_userdata_partitions": {"data": {}, "metadata": {}}},
+                )
+                self.assertEqual(report["visible_vendor_keymint_default_manifest"], f"/{manifest_path}")
+                self.assertEqual(report["required_kernel_options_missing"], [])
+                self.assertEqual(report["missing_dedicated_partitions"], [])
+                self.assertFalse(report["late_fs_mount_configured"])
+                self.assertFalse(report["encryption_on_target_verified"])
 
 
 if __name__ == "__main__":

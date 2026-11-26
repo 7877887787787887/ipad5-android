@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import xml.etree.ElementTree as ET
 from pathlib import Path, PurePosixPath
 from uuid import UUID
 
@@ -26,6 +27,8 @@ REQUIRED_CONFIG = ("CONFIG_RD_GZIP=y", "CONFIG_BLK_DEV_DM=y", "CONFIG_SECURITY_S
 INIT_DIRECTORIES = ("dev", "proc", "sys", "mnt", "debug_ramdisk", "second_stage_resources", "system")
 KERNEL_ARTIFACTS = ("Image.gz", "s8000-j72s.dtb", "candidate.config", "modules.tar.gz")
 STAGE_STORAGE = Path(__file__).resolve().parents[1] / "scripts/stage_j72s_early_storage.py"
+USERDATA_CONFIG = ("CONFIG_FS_ENCRYPTION=y", "CONFIG_DM_DEFAULT_KEY=y",
+                   "CONFIG_BLK_INLINE_ENCRYPTION=y", "CONFIG_BLK_INLINE_ENCRYPTION_FALLBACK=y")
 
 
 def checksums(path, expected):
@@ -91,6 +94,45 @@ def verify_clean_ext4(path, device_role):
             result = inspect(["debugfs", "-R", f"stat {selected_fstab}"], source)
             if "Inode:" in result.stdout or "File not found" not in result.stderr:
                 raise ValueError(f"Possible second-stage fstab override in {device_role}: {selected_fstab}")
+
+
+def visible_keymint_manifest(vendor_path):
+    with regular_file(vendor_path) as vendor:
+        manifests = ["/etc/vintf/manifest.xml", "/odm/etc/vintf/manifest.xml", "/manifest.xml"]
+        for directory in ("/etc/vintf/manifest", "/odm/etc/vintf/manifest"):
+            listing = inspect(["debugfs", "-R", f"ls -p {directory}"], vendor).stdout
+            for line in listing.splitlines():
+                columns = line.split("/")
+                if len(columns) > 5 and re.fullmatch(r"[0-9A-Za-z_.-]+\.xml", columns[5]):
+                    manifests.append(f"{directory}/{columns[5]}")
+        for path in manifests:
+            raw = inspect(["debugfs", "-R", f"cat {path}"], vendor).stdout
+            if not raw:
+                continue
+            try:
+                document = ET.fromstring(raw)
+            except ET.ParseError:
+                continue
+            for hal in document.findall("./hal"):
+                if (hal.get("format") != "aidl"
+                        or hal.findtext("name") != "android.hardware.security.keymint"):
+                    continue
+                if (hal.find("fqname[.='IKeyMintDevice/default']") is not None
+                        or hal.find("interface[name='IKeyMintDevice']/instance[.='default']") is not None):
+                    return path
+    return None
+
+
+def userdata_preflight(kernel_config, vendor, media):
+    partitions = media["dedicated_userdata_partitions"]
+    return {
+        "required_kernel_options_missing": [option for option in USERDATA_CONFIG
+                                            if option not in kernel_config],
+        "missing_dedicated_partitions": [role for role in ("data", "metadata") if role not in partitions],
+        "visible_vendor_keymint_default_manifest": visible_keymint_manifest(vendor),
+        "late_fs_mount_configured": False,
+        "encryption_on_target_verified": False,
+    }
 
 
 def verify_storage_overlay(archive_path, ramdisk):
@@ -200,6 +242,7 @@ def package(args):
             "kernel_artifacts": kernel_hashes,
             "runtime_requires_verified_read_only_media": True,
             "data_mount_configured": False,
+            "encrypted_userdata_preflight": userdata_preflight(config, args.vendor, media),
         })
         (result / "first-stage.json").write_text(json.dumps(media, indent=2) + "\n", encoding="utf-8")
         hashes = []

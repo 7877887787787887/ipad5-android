@@ -12,7 +12,8 @@ from pathlib import Path
 from uuid import UUID
 
 
-PARTITIONS = {"system": "j72s-system", "vendor": "j72s-vendor", "data": "j72s-data"}
+PARTITIONS = {"system": "j72s-system", "vendor": "j72s-vendor",
+              "data": "j72s-data", "metadata": "j72s-metadata"}
 CHUNK = 1024 * 1024
 
 
@@ -85,6 +86,9 @@ def read_layout(media, disk_guid):
 
 
 def source_properties(source, name):
+    source.seek(0)
+    if source.read(4) == b"\x3a\xff\x26\xed":
+        raise ValueError(f"{name} is Android-sparse, expected the raw ext4 build artifact")
     source.seek(1080)
     if source.read(2) != b"\x53\xef":
         raise ValueError(f"Expected a raw ext filesystem image for {name}")
@@ -138,6 +142,10 @@ def validate(dtb, media, system, vendor, disk_guid):
         "images": images,
         "candidate_boot_part_uuid": images["system"]["partition_uuid"],
         "dedicated_data_partition_present": PARTITIONS["data"] in entries,
+        "dedicated_userdata_partitions": {
+            role: {"name": PARTITIONS[role], "partition_uuid": str(entries[PARTITIONS[role]][2])}
+            for role in ("data", "metadata") if PARTITIONS[role] in entries
+        },
         "hardware_tested": False,
     }
 

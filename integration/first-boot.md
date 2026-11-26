@@ -41,8 +41,8 @@ dedicated Android media.
 On Linux with `sfdisk`, `debugfs` and `fdtget`, validate a regular-file
 copy of the proposed external GPT media against the raw system and vendor
 artifacts. Supply the disk GUID recorded independently for that image.
-The candidate layout uses `j72s-system`, `j72s-vendor` and, when present,
-`j72s-data` partition labels.
+The candidate layout uses `j72s-system` and `j72s-vendor`.
+The preflight also recognizes `j72s-data` and `j72s-metadata` on that disk.
 
 ```sh
 python3 validation/check_j72s_boot_media.py \
@@ -56,9 +56,9 @@ python3 validation/check_j72s_boot_media.py \
 The check verifies the J72s device-tree identity, explicit GPT disk GUID,
 unique named partitions, Android image properties and a byte-for-byte
 match to the system and vendor images. It reports the selected
-partition's UUID for boot-device binding. The optional data partition's
-presence is reported separately. It still needs an Android data
-filesystem configuration and its own runtime test.
+partition's UUID for boot-device binding. The report lists the verified
+GPT identities of any dedicated data and metadata partitions. Their
+contents and runtime encryption are separate tests.
 
 Android 16 first-stage init uses `androidboot.boot_part_uuid` to select an
 exact block-device parent from Linux partition add events. Binding it to
@@ -118,6 +118,34 @@ require hardware validation.
 [Android 16 mount and switch-root behavior](https://android.googlesource.com/platform/system/core/+/android-16.0.0_r1/init/first_stage_mount.cpp)
 [Android 16 filesystem preparation](https://android.googlesource.com/platform/system/core/+/android-16.0.0_r1/fs_mgr/fs_mgr.cpp)
 
+## Encrypted data for home-screen boot
+
+Android 16 second-stage `ueventd` re-applies `androidboot.boot_part_uuid`
+and generates global by-name aliases for the selected SCSI disk.
+A later writable configuration can use the dedicated data and metadata
+aliases on that same parent. Verify the aliases against the selected
+media before enabling either filesystem.
+
+Stock Android init starts encryption HALs during `late-fs`. The board
+needs a vendor-side late mount action and persistent fstab visible after
+the GSI switch-root. Metadata encryption needs an early dedicated
+`/metadata` filesystem for its key material, the kernel's fscrypt and
+`dm-default-key` support, and KeyMint ready before encrypted data mounts.
+External USB storage also needs the software inline-encryption fallback.
+The supplied GSI provides the Android init, vold and Keystore framework
+pieces. The J72s vendor build must provide and start the appropriate
+KeyMint service. [Android 16 second-stage device handling](https://android.googlesource.com/platform/system/core/+/android-16.0.0_r1/init/ueventd.cpp)
+[AOSP metadata encryption](https://source.android.com/docs/security/features/encryption/metadata)
+
+The diagnostic report inventories those kernel options, both dedicated GPT
+identities and any visible vendor KeyMint default declaration. A VINTF
+declaration does not establish that the service runs or protects keys.
+The original local candidate lacked `CONFIG_FS_ENCRYPTION` and
+`CONFIG_DM_DEFAULT_KEY`, so inspect the exact rebuilt kernel before
+attempting writable data. The diagnostic config keeps both data
+filesystems unmounted. A UI candidate requires a verified encrypted mount
+and successful key creation across reboot.
+
 ## Gates before a hardware attempt
 
 - [ ] Build the complete J72s vendor image with matching kernel modules and board firmware.
@@ -128,7 +156,9 @@ require hardware validation.
 
 If the first boot uses a Lightning USB storage adapter in host mode,
 plan logs that can be collected without switching that port to USB device
-mode. Confirm the hardware can resume stock iPadOS before treating
-the temporary setup as ready for independent boot work.
+mode. The [display-console preflight](../android-stage/usb/first-boot-console.md)
+checks the effective device tree and kernel configuration. Confirm the
+hardware can resume stock iPadOS before treating the temporary setup as
+ready for independent boot work.
 
 [Android generic boot and first-stage init](https://source.android.com/docs/core/architecture/partitions/generic-boot)

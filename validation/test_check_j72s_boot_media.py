@@ -12,11 +12,13 @@ import check_j72s_boot_media as boot
 
 
 SECTOR = 512
-SECTORS = 32768
+SECTORS = 49152
 DISK_GUID = UUID("713a7499-4316-4cdf-9b1a-f81e717b8ee6")
 FILESYSTEM = UUID("0fc63daf-8483-4772-8e79-3d69d8477de4")
 SYSTEM_GUID = UUID("4226fe65-0f3b-4ce6-bf7b-c01bc3618cea")
 VENDOR_GUID = UUID("5ebf27c3-1c56-433c-880d-eb1371dcf6ec")
+DATA_GUID = UUID("c4805492-e142-43c4-a1de-0681c7ee6f8b")
+METADATA_GUID = UUID("ea29e260-5f61-458a-9b9c-23120d45eaea")
 SYSTEM_START = 2048
 VENDOR_START = 12288
 CAPACITY = 8192
@@ -101,7 +103,31 @@ class CheckBootMediaTest(unittest.TestCase):
         self.assertEqual(result["candidate_boot_part_uuid"], str(SYSTEM_GUID))
         self.assertEqual(result["images"]["vendor"]["partition_uuid"], str(VENDOR_GUID))
         self.assertFalse(result["hardware_tested"])
+        self.assertEqual(result["dedicated_userdata_partitions"], {})
         self.assertEqual(self.media.read_bytes(), before)
+
+    def test_reports_same_disk_data_and_metadata_without_mounting_them(self):
+        extra = self.root / "extra.img"
+        write_gpt_fixture(extra, [
+            ("j72s-system", SYSTEM_GUID, SYSTEM_START), ("j72s-vendor", VENDOR_GUID, VENDOR_START),
+            ("j72s-data", DATA_GUID, 22528), ("j72s-metadata", METADATA_GUID, 32768),
+        ])
+        with extra.open("r+b") as media:
+            for image, start in ((self.system, SYSTEM_START), (self.vendor, VENDOR_START)):
+                media.seek(start * SECTOR)
+                media.write(image.read_bytes())
+        result = boot.validate(self.dtb, extra, self.system, self.vendor, DISK_GUID)
+        self.assertEqual(result["dedicated_userdata_partitions"], {
+            "data": {"name": "j72s-data", "partition_uuid": str(DATA_GUID)},
+            "metadata": {"name": "j72s-metadata", "partition_uuid": str(METADATA_GUID)},
+        })
+        self.assertFalse(result["hardware_tested"])
+
+    def test_reports_sparse_input_separately_from_raw_ext4(self):
+        sparse = self.root / "sparse-vendor.img"
+        sparse.write_bytes(b"\x3a\xff\x26\xed")
+        with self.assertRaisesRegex(ValueError, "vendor is Android-sparse"):
+            boot.validate(self.dtb, self.media, self.system, sparse, DISK_GUID)
 
     def test_refuses_different_disk_or_altered_partition(self):
         with self.assertRaisesRegex(ValueError, "specified dedicated disk GUID"):

@@ -123,7 +123,7 @@ fi
     # AOSP's environment script and lunch helpers assume unset variables are allowed.
     set +u
     source build/envsetup.sh
-    lunch j72s_vendor-trunk_staging-userdebug
+    lunch j72s_vendor-aosp_current-userdebug
     product_out=$(get_build_var PRODUCT_OUT)
 
     m init_first_stage

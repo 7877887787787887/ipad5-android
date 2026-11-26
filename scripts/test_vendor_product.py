@@ -71,7 +71,8 @@ class VendorProductTest(unittest.TestCase):
             "'$(BOARD_VENDOR_KERNEL_MODULES_LOAD)' '$(PRODUCT_COPY_FILES)' "
             "'$(DEVICE_MANIFEST_FILE)' '$(PRODUCT_MAX_PAGE_SIZE_SUPPORTED)' "
             "'$(PRODUCT_BUILD_VENDOR_IMAGE) $(PRODUCT_BUILD_BOOT_IMAGE) "
-            "$(BOARD_VENDORIMAGE_FILE_SYSTEM_TYPE) $(TARGET_USERIMAGES_SPARSE_EXT_DISABLED)' "
+            "$(BOARD_VENDORIMAGE_FILE_SYSTEM_TYPE) $(TARGET_USERIMAGES_SPARSE_EXT_DISABLED) "
+            "$(TARGET_SUPPORTS_64_BIT_APPS) $(TARGET_SUPPORTS_32_BIT_APPS)' "
             "'$(BOARD_VENDOR_SEPOLICY_DIRS)' "
             "'$(soong_wifi_hal_interface_combinations)' "
             "'$(soong_wpa_supplicant_8_wifi_hidl_unified_supplicant_service_rc_entry) "
@@ -89,7 +90,7 @@ class VendorProductTest(unittest.TestCase):
         result = self.read_target()
         self.assertEqual(result.returncode, 0, result.stderr)
         lunch, packages, modules, copies, manifest, pages, images, *_ = result.stdout.splitlines()
-        self.assertEqual(lunch, "j72s_vendor-trunk_staging-userdebug")
+        self.assertEqual(lunch, "j72s_vendor-aosp_current-userdebug")
         self.assertTrue({
             "selinux_policy_vendor", "android.hardware.light-service.j72s",
             "android.hardware.composer.hwc3-service.drm",
@@ -132,7 +133,7 @@ class VendorProductTest(unittest.TestCase):
             self.assertTrue(all("name" not in profile.attrib for profile in profiles))
         self.assertEqual(ElementTree.parse(self.root / manifest).getroot().get("target-level"), "202504")
         self.assertEqual(pages, "16384")
-        self.assertEqual(images, "true false ext4 true")
+        self.assertEqual(images, "true false ext4 true true true")
 
     def test_low_ram_settings_and_zram_are_packaged_in_vendor(self):
         result = self.read_target()
