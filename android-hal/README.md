@@ -71,6 +71,36 @@ lunch j72s_vendor-trunk_staging-userdebug
 m vendorimage
 ```
 
+For a prepared Android source checkout, the build script verifies the
+kernel bundle and firmware, stages the matching modules and Vulkan
+library, applies the HAL and display patches, then builds
+`init_first_stage` and `vendorimage`.
+
+```sh
+bash device/apple/j72s-port/scripts/build-j72s-vendor.sh \
+  "$PWD" /build/kernel /build/firmware /build/vulkan
+```
+
+Pass `--stage-only` before the four paths to validate and stage the
+inputs before compiling. Use the Android 16 r1 manifest
+(`android-16.0.0_r1`), the J72s kernel artifacts with ADBE support,
+the hash-addressed Orchard firmware cache, and the directory emitted by
+`scripts/build-android-gpu.sh`.
+
+The **J72s Android vendor image** GitHub Actions workflow runs manually
+from the default branch of a private repository on a dedicated Linux
+x86-64 self-hosted runner with the `j72s-android-build` label. Set the
+repository variable `J72S_BUILD_ROOT` to a runner-owned directory containing the
+`kernel`, `firmware` and `vulkan` inputs. The runner needs the usual
+Android host build prerequisites and Google's `repo` command. Google
+recommends 400 GB of free disk space and 64 GB of RAM for a fresh
+Android checkout and build. The workflow syncs the pinned source in
+`aosp` under that directory. The resulting image stays on the runner
+under the Android product output directory. The job prints its path and
+SHA-256. The separately linked, firmware-free first-stage `init` and
+its checksum are available as the `j72s-android-first-stage` artifact.
+That executable is one part of a first-stage ramdisk.
+
 The product packages the Android speaker route, the four-sensor AIDL
 service, Bluetooth HCI, and Android Wi-Fi over nl80211. It stages the
 SmartIO, AOP sensor, CT819 ambient-light, VXD video, audio and wireless

@@ -1,2 +1,3 @@
 scripts/*.sh text eol=lf
+validation/j72s-memory.sh text eol=lf
 ram-stage/init text eol=lf

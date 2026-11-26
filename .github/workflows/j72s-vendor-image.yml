@@ -1,0 +1,75 @@
+name: J72s Android vendor image
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: j72s-private-vendor-image
+  cancel-in-progress: false
+jobs:
+  vendor:
+    if: github.event.repository.private
+    runs-on: [self-hosted, Linux, X64, j72s-android-build]
+    timeout-minutes: 720
+    env:
+      J72S_BUILD_ROOT: ${{ vars.J72S_BUILD_ROOT }}
+      GIT_TERMINAL_PROMPT: '0'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Prepare the Android 16 source tree
+        run: |
+          set -euo pipefail
+          umask 077
+          : "${J72S_BUILD_ROOT:?Set the J72S_BUILD_ROOT variable to the runner's private build path}"
+          root=$(realpath -e "$J72S_BUILD_ROOT")
+          test -d "$root/kernel"
+          test -d "$root/firmware"
+          test -d "$root/vulkan"
+          aosp=$root/aosp
+          mkdir -p "$aosp"
+          cd "$aosp"
+          df -h "$aosp"
+          if [[ ! -d .repo ]]; then
+            repo init --partial-clone -b android-16.0.0_r1 \
+              -u https://android.googlesource.com/platform/manifest
+          fi
+          test "$(git -C .repo/manifests rev-parse HEAD)" = 2e764235335a27ee8cc8efc16baef4c0f6a5b3fe
+          repo sync -c -j4
+      - name: Compile the full J72s vendor image
+        id: compile
+        run: |
+          set -euo pipefail
+          umask 077
+          root=$(realpath -e "$J72S_BUILD_ROOT")
+          device=$root/aosp/device/apple/j72s-port
+          mkdir -p "$(dirname "$device")"
+          if [[ ! -e $device ]]; then
+            git clone --no-hardlinks "$GITHUB_WORKSPACE" "$device"
+          fi
+          test -d "$device/.git"
+          git -C "$device" fetch --no-tags "$GITHUB_WORKSPACE" "$GITHUB_SHA"
+          # Reject tracked local edits before updating the persistent build checkout.
+          git -C "$device" diff --quiet
+          git -C "$device" diff --cached --quiet
+          git -C "$device" checkout --detach FETCH_HEAD
+          J72S_FIRST_STAGE_OUTPUT_DIR=$(mktemp -d "$RUNNER_TEMP/j72s-first-stage.XXXXXX")
+          export J72S_FIRST_STAGE_OUTPUT_DIR
+          status=0
+          bash "$device/scripts/build-j72s-vendor.sh" \
+            "$root/aosp" "$root/kernel" "$root/firmware" "$root/vulkan" || status=$?
+          if [[ -s $J72S_FIRST_STAGE_OUTPUT_DIR/SHA256SUMS ]]; then
+            printf 'first_stage_dir=%s\n' "$J72S_FIRST_STAGE_OUTPUT_DIR" >> "$GITHUB_OUTPUT"
+          fi
+          exit "$status"
+      - name: Save the firmware-free Android first-stage executable
+        if: always() && steps.compile.outputs.first_stage_dir != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: j72s-android-first-stage
+          path: |
+            ${{ steps.compile.outputs.first_stage_dir }}/init
+            ${{ steps.compile.outputs.first_stage_dir }}/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7

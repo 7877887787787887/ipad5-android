@@ -1,0 +1,22 @@
+cc_binary {
+    name: "j72s-vxd-probe",
+    vendor: true,
+    srcs: ["vxd_probe.c"],
+    c_std: "c17",
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+    ldflags: ["-Wl,-z,max-page-size=16384"],
+}
+
+cc_test_host {
+    name: "j72s-vxd-probe-test",
+    srcs: ["vxd_probe.c", "vxd_probe_test.c"],
+    c_std: "c17",
+    cflags: ["-Wall", "-Wextra", "-Werror", "-DJ72S_VXD_PROBE_TEST", "-UNDEBUG"],
+    ldflags: ["-Wl,--wrap=ioctl", "-Wl,--wrap=close"],
+    gtest: false,
+    target: {
+        darwin: {
+            enabled: false,
+        },
+    },
+}

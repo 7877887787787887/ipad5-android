@@ -29,6 +29,14 @@ target_compile_options(device_interfaces PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(device_interfaces PRIVATE PkgConfig::LibDrm)
 add_test(NAME device_interfaces COMMAND device_interfaces --self-test)
 
+add_executable(vxd_probe_test
+    "${repo}/android-stage/video/vxd_probe.c" "${repo}/android-stage/video/vxd_probe_test.c")
+target_compile_features(vxd_probe_test PRIVATE c_std_17)
+target_compile_definitions(vxd_probe_test PRIVATE J72S_VXD_PROBE_TEST)
+target_compile_options(vxd_probe_test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+target_link_options(vxd_probe_test PRIVATE -Wl,--wrap=ioctl,--wrap=close)
+add_test(NAME vxd_probe COMMAND vxd_probe_test)
+
 add_executable(alsa_endpoint_test "${repo}/android-stage/alsa_endpoint.c"
     "${repo}/android-stage/alsa_endpoint_test.c")
 target_compile_features(alsa_endpoint_test PRIVATE c_std_17)
@@ -83,6 +91,10 @@ add_test(NAME vendor_product
     COMMAND Python3::Interpreter -B -m unittest discover -s "${repo}/scripts" -p test_vendor_product.py -v)
 add_test(NAME vendor_firmware
     COMMAND Python3::Interpreter -B -m unittest discover -s "${repo}/scripts" -p test_stage_j72s_firmware.py -v)
+add_test(NAME early_usb_storage
+    COMMAND Python3::Interpreter -B -m unittest discover -s "${repo}/scripts" -p test_stage_j72s_early_storage.py -v)
+add_test(NAME boot_media
+    COMMAND Python3::Interpreter -B -m unittest discover -s "${repo}/validation" -p test_check_j72s_boot_media.py -v)
 add_test(NAME clock_audit
     COMMAND Python3::Interpreter -B "${repo}/performance/audit_clock.py" --self-test)
 add_test(NAME ota_verifier

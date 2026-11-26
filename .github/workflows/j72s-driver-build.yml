@@ -16,12 +16,41 @@ jobs:
       - name: Install test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libdrm-dev ninja-build
+          sudo apt-get install -y device-tree-compiler e2fsprogs fdisk libdrm-dev ninja-build
       - name: Compile and test driver integration
         run: |
           cmake -S android-hal -B "$RUNNER_TEMP/j72s-tests" -G Ninja
           cmake --build "$RUNNER_TEMP/j72s-tests" --parallel 2
           ctest --test-dir "$RUNNER_TEMP/j72s-tests" --output-on-failure
+      - name: Build ARM64 Android hardware probes
+        run: |
+          set -euo pipefail
+          ndk="${ANDROID_NDK_HOME:-${ANDROID_NDK_LATEST_HOME:-}}"
+          if [[ ! -d $ndk/toolchains/llvm ]]; then
+            ndk=$(find "$ANDROID_HOME/ndk" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          fi
+          toolchain=$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin
+          flags=(-std=gnu17 -O2 -Wall -Wextra -Werror -Wl,-z,max-page-size=16384)
+          out=$RUNNER_TEMP/j72s-android-probes
+          mkdir -p "$out"
+          "$toolchain/aarch64-linux-android35-clang" "${flags[@]}" -I/usr/include/libdrm \
+            validation/device_interfaces.c -o "$out/device-interfaces"
+          "$toolchain/aarch64-linux-android35-clang" "${flags[@]}" \
+            android-stage/video/vxd_probe.c -o "$out/vxd-probe"
+          for name in device-interfaces vxd-probe; do
+            "$toolchain/llvm-readelf" -h -lW "$out/$name" > "$out/$name.elf.txt"
+            grep -q AArch64 "$out/$name.elf.txt"
+            grep -q /system/bin/linker64 "$out/$name.elf.txt"
+            awk '$1 == "LOAD" { if ($NF != "0x4000") exit 1; loads++ }
+                 END { if (!loads) exit 1 }' "$out/$name.elf.txt"
+          done
+          (cd "$out" && sha256sum device-interfaces vxd-probe > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: j72s-android-hardware-probes
+          path: ${{ runner.temp }}/j72s-android-probes/
+          if-no-files-found: error
+          retention-days: 7
 
   kernel:
     runs-on: ubuntu-24.04-arm
@@ -33,7 +62,7 @@ jobs:
       - name: Install kernel build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential bc bison flex libssl-dev libelf-dev dwarves cpio rsync zstd lz4 python3 curl xz-utils clang llvm lld patch
+          sudo apt-get install -y build-essential bc bison flex libssl-dev libelf-dev dwarves cpio rsync zstd lz4 python3 curl xz-utils clang llvm lld patch kmod
       - name: Compile the J72s kernel and DTB
         run: bash scripts/build.sh
       - name: Verify the Android kernel prerequisites
@@ -42,6 +71,11 @@ jobs:
             grep -Fx "CONFIG_${option}=y" artifacts/candidate.config
           done
           (cd artifacts && sha256sum -c SHA256SUMS)
+      - name: Stage the first-stage storage drivers
+        run: |
+          python3 scripts/stage_j72s_early_storage.py artifacts "$RUNNER_TEMP/early-storage"
+          tar -czf artifacts/j72s-early-storage-overlay.tar.gz -C "$RUNNER_TEMP/early-storage" .
+          (cd artifacts && sha256sum j72s-early-storage-overlay.tar.gz >> SHA256SUMS)
       - uses: actions/upload-artifact@v4
         with:
           name: j72s-driver-build-kernel

@@ -67,6 +67,8 @@ PRODUCT_COPY_FILES += \
     $(J72S_DEVICE_PATH)/ueventd.rc:$(TARGET_COPY_OUT_VENDOR)/etc/ueventd.rc \
     $(J72S_DEVICE_PATH)/android-stage/memory/fstab.j72s.zram:$(TARGET_COPY_OUT_VENDOR)/etc/fstab.j72s.zram \
     $(J72S_DEVICE_PATH)/android-stage/memory/init.j72s.memory.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/init.j72s.memory.rc \
+    $(J72S_DEVICE_PATH)/android-stage/usb/init.j72s.usb.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/init.j72s.usb.rc \
+    frameworks/native/data/etc/android.hardware.usb.host.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.usb.host.xml \
     $(J72S_DEVICE_PATH)/android-stage/sensors/ueventd.j72s-sensors.rc:$(TARGET_COPY_OUT_VENDOR)/etc/ueventd.j72s-sensors.rc \
     $(foreach kind,accelerometer gyroscope barometer light,\
         frameworks/native/data/etc/android.hardware.sensor.$(kind).xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.sensor.$(kind).xml) \

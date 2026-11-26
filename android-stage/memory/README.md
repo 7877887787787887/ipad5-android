@@ -29,3 +29,14 @@ minimum available RAM, peak zram physical memory and whether the
 launcher or foreground app was killed. Verify display refresh, touch
 response and audio during that workload. Compare those same measurements
 across builds before changing the heap or swap sizes.
+
+On an authorized Android debug connection, collect 60 one-second samples
+while using the tablet:
+
+```sh
+adb shell sh -s 60 < validation/j72s-memory.sh > j72s-memory.tsv
+```
+
+The report includes available RAM, swap usage, physical memory used by
+zram, and full memory-stall percentage over the last 10 seconds.
+`NA` indicates a kernel counter that the current shell cannot read.

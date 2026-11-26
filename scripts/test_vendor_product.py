@@ -3,6 +3,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from shlex import split as split_words
 from xml.etree import ElementTree
 
 from stage_j72s_firmware import FIRMWARE
@@ -178,6 +179,29 @@ class VendorProductTest(unittest.TestCase):
         rc = (REPO / SENSORS / f"{service}.rc").read_text()
         self.assertIn(f"/vendor/bin/hw/{service}", rc)
         self.assertIn("interface aidl android.hardware.sensors.ISensors/default", rc)
+
+    def test_usb_host_and_adb_functionfs_are_packaged(self):
+        result = self.read_target()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        _, _, _, copies, *_ = result.stdout.splitlines()
+        paths = dict(value.split(":") for value in copies.split())
+        rc = Path("android-stage/usb/init.j72s.usb.rc")
+        self.assertEqual(paths[(DEVICE / rc).as_posix()], f"vendor/etc/init/{rc.name}")
+        host = "android.hardware.usb.host.xml"
+        self.assertEqual(paths[f"frameworks/native/data/etc/{host}"], f"vendor/etc/permissions/{host}")
+
+        commands = [split_words(line, comments=True) for line in (REPO / rc).read_text().splitlines()]
+        commands = [command for command in commands if command]
+        self.assertEqual(commands[0], ["on", "post-fs"])
+        self.assertIn(["mkdir", "/config/usb_gadget/g1/functions/ffs.adb"], commands)
+        self.assertIn(["mkdir", "/config/usb_gadget/g1/configs/b.1/strings/0x409", "0770", "root", "root"], commands)
+        self.assertEqual(commands[-3][:4], ["mount", "functionfs", "adb", "/dev/usb-ffs/adb"])
+        self.assertEqual(sum(command[0] == "mount" for command in commands), 1)
+        self.assertEqual([command for command in commands if command[0] == "setprop"], [
+            ["setprop", "sys.usb.controller", "20c100000.usbdev"],
+            ["setprop", "sys.usb.configfs", "1"],
+        ])
+        self.assertTrue({command[0] for command in commands} <= {"on", "mkdir", "write", "mount", "setprop"})
 
     def test_missing_wireless_firmware_fails_before_packaging(self):
         file = "brcm/BCM.apple,j72s.hcd"

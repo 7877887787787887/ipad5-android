@@ -18,6 +18,14 @@
       "acceptance": "Multitouch, coordinate mapping, rotation and latency"
     },
     {
+      "id": "buttons_cover",
+      "interfaces": [
+        "GPIO keys",
+        "evdev switch"
+      ],
+      "acceptance": "Home, Power and both Volume buttons routed by Android, with Smart Cover polarity measured before enabling sleep or wake behavior"
+    },
+    {
       "id": "gpu",
       "interfaces": [
         "PowerVR DRM",
@@ -25,6 +33,14 @@
         "Zink"
       ],
       "acceptance": "Hardware rendering and graphics correctness; Android HAL separately required"
+    },
+    {
+      "id": "video_decode",
+      "interfaces": [
+        "V4L2 Request",
+        "Android Codec2"
+      ],
+      "acceptance": "Matching H.264 and HEVC reference frames through the VXD request driver, NV12 buffer import and a stateless Android Codec2 backend"
     },
     {
       "id": "audio",
