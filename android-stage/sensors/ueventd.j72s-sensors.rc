@@ -1,0 +1,24 @@
+# IIO character nodes are read by the Sensors HAL.
+/dev/iio:device* 0640 root system
+
+# Match IIO's bus alias so permissions survive device-number changes.
+/sys/bus/iio/devices/iio:device* current_timestamp_clock 0660 root system
+/sys/bus/iio/devices/iio:device* sampling_frequency 0660 root system
+/sys/bus/iio/devices/iio:device* buffer/enable 0660 root system
+/sys/bus/iio/devices/iio:device* buffer0/enable 0660 root system
+/sys/bus/iio/devices/iio:device* buffer0/in_accel_x_en 0660 root system
+/sys/bus/iio/devices/iio:device* buffer0/in_accel_y_en 0660 root system
+/sys/bus/iio/devices/iio:device* buffer0/in_accel_z_en 0660 root system
+/sys/bus/iio/devices/iio:device* buffer0/in_anglvel_x_en 0660 root system
+/sys/bus/iio/devices/iio:device* buffer0/in_anglvel_y_en 0660 root system
+/sys/bus/iio/devices/iio:device* buffer0/in_anglvel_z_en 0660 root system
+/sys/bus/iio/devices/iio:device* buffer0/in_pressure_en 0660 root system
+/sys/bus/iio/devices/iio:device* buffer0/in_timestamp_en 0660 root system
+/sys/bus/iio/devices/iio:device* scan_elements/in_accel_x_en 0660 root system
+/sys/bus/iio/devices/iio:device* scan_elements/in_accel_y_en 0660 root system
+/sys/bus/iio/devices/iio:device* scan_elements/in_accel_z_en 0660 root system
+/sys/bus/iio/devices/iio:device* scan_elements/in_anglvel_x_en 0660 root system
+/sys/bus/iio/devices/iio:device* scan_elements/in_anglvel_y_en 0660 root system
+/sys/bus/iio/devices/iio:device* scan_elements/in_anglvel_z_en 0660 root system
+/sys/bus/iio/devices/iio:device* scan_elements/in_pressure_en 0660 root system
+/sys/bus/iio/devices/iio:device* scan_elements/in_timestamp_en 0660 root system

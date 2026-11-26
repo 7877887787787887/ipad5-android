@@ -1,0 +1,50 @@
+name: J72s driver build
+on:
+  push:
+    branches: [codex/j72s-build]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  driver-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdrm-dev ninja-build
+      - name: Compile and test driver integration
+        run: |
+          cmake -S android-hal -B "$RUNNER_TEMP/j72s-tests" -G Ninja
+          cmake --build "$RUNNER_TEMP/j72s-tests" --parallel 2
+          ctest --test-dir "$RUNNER_TEMP/j72s-tests" --output-on-failure
+
+  kernel:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install kernel build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bc bison flex libssl-dev libelf-dev dwarves cpio rsync zstd lz4 python3 curl xz-utils clang llvm lld
+      - name: Compile the J72s kernel and DTB
+        run: bash scripts/build.sh
+      - name: Verify the low-RAM kernel prerequisites
+        run: |
+          for option in MEMCG PSI SWAP ZRAM; do
+            grep -Fx "CONFIG_${option}=y" artifacts/candidate.config
+          done
+          (cd artifacts && sha256sum -c SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: j72s-driver-build-kernel
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 7

@@ -1,0 +1,18 @@
+diff --git a/dumb_driver.c b/dumb_driver.c
+--- a/dumb_driver.c
++++ b/dumb_driver.c
+@@ -65,12 +65,13 @@
+ static int adbe_init(struct driver *drv)
+ {
+-	/* Orchard ADBE only presents linear XRGB8888 on its primary plane. */
++	/* The J72s primary plane presents linear XRGB and ARGB without blending. */
+ 	static const uint32_t formats[] = {
+ 		DRM_FORMAT_XRGB8888, DRM_FORMAT_ARGB8888, DRM_FORMAT_XBGR8888, DRM_FORMAT_ABGR8888,
+ 	};
+ 	drv_add_combinations(drv, formats, ARRAY_SIZE(formats), &LINEAR_METADATA,
+ 			     BO_USE_RENDER_MASK);
+ 	drv_modify_combination(drv, DRM_FORMAT_XRGB8888, &LINEAR_METADATA, BO_USE_SCANOUT);
++	drv_modify_combination(drv, DRM_FORMAT_ARGB8888, &LINEAR_METADATA, BO_USE_SCANOUT);
+ 	return 0;
+ }
+ 

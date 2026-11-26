@@ -1,0 +1,14 @@
+# Android HAL services installed by the J72s display product.
+/vendor/bin/hw/android\.hardware\.composer\.hwc3-service\.drm u:object_r:hal_graphics_composer_default_exec:s0
+/vendor/bin/hw/android\.hardware\.graphics\.allocator-service\.minigbm u:object_r:hal_graphics_allocator_default_exec:s0
+
+# Stable-C mapper and its vendor-only dependencies load inside graphics clients.
+/vendor/lib(64)?/hw/mapper\.minigbm\.so u:object_r:same_process_hal_file:s0
+/vendor/lib(64)?/libminigbm_gralloc\.so u:object_r:same_process_hal_file:s0
+/vendor/lib(64)?/libdrm\.so u:object_r:same_process_hal_file:s0
+/vendor/lib64/hw/vulkan\.j72s\.so u:object_r:same_process_hal_file:s0
+
+# DRM assigns card indices at probe time. Label the card and render nodes.
+/dev/dri -d u:object_r:gpu_device:s0
+/dev/dri/card[0-9]+ -c u:object_r:gpu_device:s0
+/dev/dri/renderD[0-9]+ -c u:object_r:gpu_device:s0

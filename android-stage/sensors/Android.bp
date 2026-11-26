@@ -1,0 +1,41 @@
+cc_library_static {
+    name: "libj72s_iio_sensors",
+    vendor_available: true,
+    srcs: ["iio_sensors.cpp"],
+    export_include_dirs: ["."],
+    cpp_std: "c++17",
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+}
+
+cc_binary {
+    name: "android.hardware.sensors-service.j72s",
+    vendor: true,
+    relative_install_path: "hw",
+    srcs: ["sensors_service.cpp"],
+    static_libs: ["libj72s_iio_sensors"],
+    shared_libs: [
+        "android.hardware.common-V2-ndk",
+        "android.hardware.common.fmq-V1-ndk",
+        "android.hardware.sensors-V3-ndk",
+        "libbase",
+        "libbinder_ndk",
+        "libcutils",
+        "libfmq",
+        "liblog",
+        "libutils",
+    ],
+    cpp_std: "c++17",
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+    init_rc: ["android.hardware.sensors-service.j72s.rc"],
+    vintf_fragments: ["android.hardware.sensors-service.j72s.xml"],
+}
+
+cc_binary {
+    name: "j72s-iio-probe",
+    vendor: true,
+    srcs: ["iio_probe.cpp"],
+    static_libs: ["libj72s_iio_sensors"],
+    cpp_std: "c++17",
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+    ldflags: ["-Wl,-z,max-page-size=16384"],
+}

@@ -1,0 +1,5 @@
+type hal_light_j72s, domain;
+hal_server_domain(hal_light_j72s, hal_light)
+binder_use(hal_light_j72s)
+type hal_light_j72s_exec, exec_type, vendor_file_type, file_type;
+init_daemon_domain(hal_light_j72s)

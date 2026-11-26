@@ -1,0 +1,5 @@
+service vendor.sensors-hal-j72s /vendor/bin/hw/android.hardware.sensors-service.j72s
+    class hal
+    user system
+    group system
+    interface aidl android.hardware.sensors.ISensors/default

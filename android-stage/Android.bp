@@ -1,0 +1,25 @@
+cc_binary {
+    name: "j72s-native-interfaces",
+    srcs: ["native_interfaces.c"],
+    shared_libs: ["libaaudio", "libvulkan"],
+    c_std: "c17",
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+    ldflags: ["-Wl,-z,max-page-size=16384"],
+}
+
+cc_binary {
+    name: "j72s-vulkan-probe",
+    srcs: ["vulkan_probe.c"],
+    shared_libs: ["libvulkan"],
+    c_std: "c17",
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+    ldflags: ["-Wl,-z,max-page-size=16384"],
+}
+
+cc_binary {
+    name: "j72s-alsa-probe",
+    srcs: ["alsa_probe.c", "alsa_endpoint.c"],
+    c_std: "c17",
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+    ldflags: ["-Wl,-z,max-page-size=16384"],
+}

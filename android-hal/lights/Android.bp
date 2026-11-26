@@ -1,0 +1,24 @@
+cc_binary {
+    name: "android.hardware.light-service.j72s",
+    vendor: true,
+    relative_install_path: "hw",
+    srcs: ["service.cpp"],
+    shared_libs: [
+        "libbinder_ndk",
+        "android.hardware.light-V2-ndk",
+    ],
+    cpp_std: "c++17",
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+    init_rc: ["android.hardware.light-service.j72s.rc"],
+    vintf_fragments: ["android.hardware.light-service.j72s.xml"],
+}
+
+cc_test {
+    name: "j72s-lights-backlight-test",
+    host_supported: true,
+    srcs: ["backlight_test.cpp"],
+    gtest: false,
+    cpp_std: "c++17",
+    cflags: ["-Wall", "-Wextra", "-Werror", "-UNDEBUG"],
+    test_suites: ["general-tests"],
+}

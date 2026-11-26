@@ -1,0 +1,37 @@
+diff --git a/src/imagination/vulkan/pvr_cmd_buffer.h b/src/imagination/vulkan/pvr_cmd_buffer.h
+--- a/src/imagination/vulkan/pvr_cmd_buffer.h
++++ b/src/imagination/vulkan/pvr_cmd_buffer.h
+@@ -508,7 +508,7 @@ struct pvr_cmd_buffer_state {
+    /* Pipeline binding. */
+    const struct pvr_graphics_pipeline *gfx_pipeline;
+ 
+-   const struct pvr_compute_pipeline *compute_pipeline;
++   struct pvr_compute_pipeline *compute_pipeline;
+ 
+    struct pvr_render_pass_info render_pass_info;
+ 
+diff --git a/src/imagination/vulkan/pvr_arch_cmd_buffer.c b/src/imagination/vulkan/pvr_arch_cmd_buffer.c
+--- a/src/imagination/vulkan/pvr_arch_cmd_buffer.c
++++ b/src/imagination/vulkan/pvr_arch_cmd_buffer.c
+@@ -3092,7 +3092,7 @@
+ }
+ 
+ static void pvr_cmd_bind_compute_pipeline(
+-   const struct pvr_compute_pipeline *const compute_pipeline,
++   struct pvr_compute_pipeline *const compute_pipeline,
+    struct pvr_cmd_buffer *const cmd_buffer)
+ {
+    cmd_buffer->state.compute_pipeline = compute_pipeline;
+diff --git a/src/imagination/vulkan/pvr_arch_g5p_compute.c b/src/imagination/vulkan/pvr_arch_g5p_compute.c
+--- a/src/imagination/vulkan/pvr_arch_g5p_compute.c
++++ b/src/imagination/vulkan/pvr_arch_g5p_compute.c
+@@ -321,7 +321,7 @@
+ {
+    struct pvr_device *device = cmd_buffer->device;
+    const bool g4p = PVR_HAS_FEATURE(&device->pdevice->dev_info, apple_g4p);
+-   const struct pvr_compute_pipeline *pipeline = cmd_buffer->state.compute_pipeline;
+-   const struct pvr_g9p_compute_state *state = &pipeline->g9p;
++   struct pvr_compute_pipeline *pipeline = cmd_buffer->state.compute_pipeline;
++   struct pvr_g9p_compute_state *state = &pipeline->g9p;
+    const struct pvr_descriptor_state *desc = &cmd_buffer->state.compute_desc_state;
+    const unsigned n = state->num_buffers;

@@ -1,0 +1,6 @@
+service vendor.light-hal-j72s /vendor/bin/hw/android.hardware.light-service.j72s
+    class hal
+    user system
+    group system
+    interface aidl android.hardware.light.ILights/default
+    shutdown critical

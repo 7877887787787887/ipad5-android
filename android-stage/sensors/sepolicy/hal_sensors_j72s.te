@@ -1,0 +1,14 @@
+type hal_sensors_j72s, domain;
+hal_server_domain(hal_sensors_j72s, hal_sensors)
+binder_use(hal_sensors_j72s)
+
+type hal_sensors_j72s_exec, exec_type, vendor_file_type, file_type;
+init_daemon_domain(hal_sensors_j72s)
+
+type vendor_sysfs_j72s_iio, fs_type, sysfs_type;
+type vendor_sysfs_j72s_iio_control, fs_type, sysfs_type;
+
+allow hal_sensors_j72s system_server:fd use;
+allow hal_sensors_j72s iio_device:chr_file r_file_perms;
+r_dir_file(hal_sensors_j72s, vendor_sysfs_j72s_iio)
+allow hal_sensors_j72s vendor_sysfs_j72s_iio_control:file rw_file_perms;

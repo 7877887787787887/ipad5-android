@@ -1,0 +1,11 @@
+diff --git a/src/imagination/vulkan/meson.build b/src/imagination/vulkan/meson.build
+--- a/src/imagination/vulkan/meson.build
++++ b/src/imagination/vulkan/meson.build
+@@ -212,6 +212,7 @@ foreach arch : ['rogue']
+       inc_src,
+     ],
+     dependencies : [
++      dep_libdrm,
+       dep_valgrind,
+       idep_nir_headers,
+       idep_pco_uscgen_programs_headers,

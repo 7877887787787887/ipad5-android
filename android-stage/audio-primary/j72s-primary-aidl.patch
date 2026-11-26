@@ -1,0 +1,192 @@
+diff --git a/audio/aidl/default/Android.bp b/audio/aidl/default/Android.bp
+index a9ecdc2..a8d8a39 100644
+--- a/audio/aidl/default/Android.bp
++++ b/audio/aidl/default/Android.bp
+@@ -74,6 +74,7 @@ cc_library {
+         "deprecated/StreamSwitcher.cpp",
+         "primary/PrimaryMixer.cpp",
+         "primary/StreamPrimary.cpp",
++        "primary/alsa_endpoint.c",
+         "r_submix/ModuleRemoteSubmix.cpp",
+         "r_submix/SubmixRoute.cpp",
+         "r_submix/StreamRemoteSubmix.cpp",
+diff --git a/audio/aidl/default/include/core-impl/StreamPrimary.h b/audio/aidl/default/include/core-impl/StreamPrimary.h
+index 06f8bc3..44943c9 100644
+--- a/audio/aidl/default/include/core-impl/StreamPrimary.h
++++ b/audio/aidl/default/include/core-impl/StreamPrimary.h
+@@ -48,7 +48,7 @@ class StreamPrimary : public StreamAlsa {
+ 
+   protected:
+     std::vector<alsa::DeviceProfile> getDeviceProfiles() override;
+-    bool isStubStream();
++    bool supportsHardwareControls();
+ 
+     const bool mIsAsynchronous;
+     int64_t mStartTimeNs = 0;
+@@ -73,9 +73,11 @@ class StreamPrimary : public StreamAlsa {
+     DriverStubImpl mStubDriver;
+     mutable std::mutex mLock;
+     AlsaDeviceId mAlsaDeviceId GUARDED_BY(mLock) = kStubDeviceId;
++    bool mUseJ72sPlayback GUARDED_BY(mLock) = false;
+ 
+     // Used by the worker thread only.
+     AlsaDeviceId mCurrAlsaDeviceId = kStubDeviceId;
++    bool mCurrUseJ72sPlayback = false;
+ };
+ 
+ class StreamInPrimary final : public StreamIn, public StreamPrimary, public StreamInHwGainHelper {
+diff --git a/audio/aidl/default/primary/StreamPrimary.cpp b/audio/aidl/default/primary/StreamPrimary.cpp
+index 8455680..14e0fea 100644
+--- a/audio/aidl/default/primary/StreamPrimary.cpp
++++ b/audio/aidl/default/primary/StreamPrimary.cpp
+@@ -16,6 +16,8 @@
+ 
+ #define LOG_TAG "AHAL_StreamPrimary"
+ 
++#include <sound/asound.h>
++
+ #include <cstdio>
+ 
+ #include <android-base/logging.h>
+@@ -25,6 +27,7 @@
+ #include <error/Result.h>
+ #include <error/expected_utils.h>
+ 
++#include "alsa_endpoint.h"
+ #include "core-impl/StreamPrimary.h"
+ 
+ using aidl::android::hardware::audio::common::SinkMetadata;
+@@ -39,6 +42,12 @@ using android::base::GetBoolProperty;
+ 
+ namespace aidl::android::hardware::audio::core {
+ 
++namespace {
++
++constexpr char kJ72sSpeakerAddress[] = "j72s-speaker";
++
++}  // namespace
++
+ StreamPrimary::StreamPrimary(StreamContext* context, const Metadata& metadata)
+     : StreamAlsa(context, metadata, 3 /*readWriteRetries*/),
+       mIsAsynchronous(!!getContext().getAsyncCallback()),
+@@ -77,6 +86,7 @@ StreamPrimary::StreamPrimary(StreamContext* context, const Metadata& metadata)
+         shutdownAlsaStream =
+                 mCurrAlsaDeviceId != mAlsaDeviceId && mCurrAlsaDeviceId != kStubDeviceId;
+         mCurrAlsaDeviceId = mAlsaDeviceId;
++        mCurrUseJ72sPlayback = mUseJ72sPlayback;
+     }
+     if (shutdownAlsaStream) {
+         StreamAlsa::shutdown();  // Close currently opened ALSA devices.
+@@ -85,6 +95,9 @@ StreamPrimary::StreamPrimary(StreamContext* context, const Metadata& metadata)
+         return mStubDriver.start();
+     }
+     RETURN_STATUS_IF_ERROR(StreamAlsa::start());
++    if (mCurrUseJ72sPlayback) {
++        return ::android::OK;
++    }
+     mStartTimeNs = ::android::uptimeNanos();
+     mFramesSinceStart = 0;
+     mSkipNextTransfer = false;
+@@ -96,6 +109,9 @@ StreamPrimary::StreamPrimary(StreamContext* context, const Metadata& metadata)
+     if (isStubStreamOnWorker()) {
+         return mStubDriver.transfer(buffer, frameCount, actualFrameCount, latencyMs);
+     }
++    if (mCurrUseJ72sPlayback) {
++        return StreamAlsa::transfer(buffer, frameCount, actualFrameCount, latencyMs);
++    }
+     // This is a workaround for the emulator implementation which has a host-side buffer
+     // and is not being able to achieve real-time behavior similar to ADSPs (b/302587331).
+     if (!mSkipNextTransfer) {
+@@ -129,7 +145,10 @@ StreamPrimary::StreamPrimary(StreamContext* context, const Metadata& metadata)
+     return ::android::OK;
+ }
+ 
+-::android::status_t StreamPrimary::refinePosition(StreamDescriptor::Position*) {
++::android::status_t StreamPrimary::refinePosition(StreamDescriptor::Position* position) {
++    if (mCurrUseJ72sPlayback) {
++        return StreamAlsa::refinePosition(position);
++    }
+     // Since not all data is actually sent to the HAL, use the position maintained by Stream class
+     // which accounts for all frames passed from / to the client.
+     return ::android::OK;
+@@ -147,10 +166,30 @@ ndk::ScopedAStatus StreamPrimary::setConnectedDevices(const ConnectedDevices& de
+                    << devices.size();
+         return ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+     }
++    const bool useJ72sPlayback = !devices.empty() &&
++            devices[0].address.getTag() == AudioDeviceAddress::id &&
++            devices[0].address.get<AudioDeviceAddress::id>() == kJ72sSpeakerAddress;
++    AlsaDeviceId alsaDeviceId = kStubDeviceId;
++    if (useJ72sPlayback) {
++        if (mIsInput || devices[0].type.type != AudioDeviceType::OUT_SPEAKER ||
++            !devices[0].type.connection.empty()) {
++            LOG(ERROR) << __func__ << ": J72s route requires a built-in speaker output";
++            return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_ARGUMENT);
++        }
++        j72s_pcm_endpoint endpoint{};
++        if (const int error = j72s_find_pcm_endpoint(SNDRV_PCM_STREAM_PLAYBACK, &endpoint);
++            error != 0) {
++            LOG(ERROR) << __func__ << ": J72s playback endpoint discovery failed: " << error;
++            return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_STATE);
++        }
++        alsaDeviceId = {endpoint.card, endpoint.device};
++    } else if (!devices.empty() && !useStubStream(mIsInput, devices[0])) {
++        alsaDeviceId = getCardAndDeviceId(devices);
++    }
+     {
+-        const bool useStubDriver = devices.empty() || useStubStream(mIsInput, devices[0]);
+         std::lock_guard l(mLock);
+-        mAlsaDeviceId = useStubDriver ? kStubDeviceId : getCardAndDeviceId(devices);
++        mAlsaDeviceId = alsaDeviceId;
++        mUseJ72sPlayback = useJ72sPlayback;
+     }
+     if (!devices.empty()) {
+         auto streamDataProcessor = getContext().getStreamDataProcessor().lock();
+@@ -168,9 +207,9 @@ std::vector<alsa::DeviceProfile> StreamPrimary::getDeviceProfiles() {
+                                 .isExternal = false}};
+ }
+ 
+-bool StreamPrimary::isStubStream() {
++bool StreamPrimary::supportsHardwareControls() {
+     std::lock_guard l(mLock);
+-    return mAlsaDeviceId == kStubDeviceId;
++    return mAlsaDeviceId != kStubDeviceId && !mUseJ72sPlayback;
+ }
+ 
+ // static
+@@ -215,7 +254,7 @@ StreamInPrimary::StreamInPrimary(StreamContext&& context, const SinkMetadata& si
+       StreamInHwGainHelper(&mContextInstance) {}
+ 
+ ndk::ScopedAStatus StreamInPrimary::getHwGain(std::vector<float>* _aidl_return) {
+-    if (isStubStream()) {
++    if (!supportsHardwareControls()) {
+         return ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+     }
+     if (mHwGains.empty()) {
+@@ -228,7 +267,7 @@ ndk::ScopedAStatus StreamInPrimary::getHwGain(std::vector<float>* _aidl_return)
+ }
+ 
+ ndk::ScopedAStatus StreamInPrimary::setHwGain(const std::vector<float>& in_channelGains) {
+-    if (isStubStream()) {
++    if (!supportsHardwareControls()) {
+         LOG(DEBUG) << __func__ << ": gains " << ::android::internal::ToString(in_channelGains);
+         return ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+     }
+@@ -260,7 +299,7 @@ StreamOutPrimary::StreamOutPrimary(StreamContext&& context, const SourceMetadata
+       StreamOutHwVolumeHelper(&mContextInstance) {}
+ 
+ ndk::ScopedAStatus StreamOutPrimary::getHwVolume(std::vector<float>* _aidl_return) {
+-    if (isStubStream()) {
++    if (!supportsHardwareControls()) {
+         return ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+     }
+     if (mHwVolumes.empty()) {
+@@ -272,7 +311,7 @@ ndk::ScopedAStatus StreamOutPrimary::getHwVolume(std::vector<float>* _aidl_retur
+ }
+ 
+ ndk::ScopedAStatus StreamOutPrimary::setHwVolume(const std::vector<float>& in_channelVolumes) {
+-    if (isStubStream()) {
++    if (!supportsHardwareControls()) {
+         LOG(DEBUG) << __func__ << ": volumes " << ::android::internal::ToString(in_channelVolumes);
+         return ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+     }

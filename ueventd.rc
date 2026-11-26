@@ -1,0 +1,2 @@
+import /vendor/etc/ueventd.j72s-lights.rc
+import /vendor/etc/ueventd.j72s-sensors.rc

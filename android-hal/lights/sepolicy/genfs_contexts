@@ -1,0 +1,1 @@
+genfscon sysfs /devices/platform/soc/20e200080.backlight/backlight/20e200080.backlight u:object_r:sysfs_leds:s0

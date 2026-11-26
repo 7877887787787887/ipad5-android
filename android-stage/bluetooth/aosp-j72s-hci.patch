@@ -1,0 +1,392 @@
+diff --git a/bluetooth/aidl/default/Android.bp b/bluetooth/aidl/default/Android.bp
+index 46a6983..e0741c1 100644
+--- a/bluetooth/aidl/default/Android.bp
++++ b/bluetooth/aidl/default/Android.bp
+@@ -30,7 +30,7 @@ cc_library_static {
+     defaults: ["android.hardware.bluetooth-service-build-defaults"],
+     srcs: [
+         "BluetoothHci.cpp",
+-        "net_bluetooth_mgmt.cpp",
++        "j72s_hci_transport.cpp",
+     ],
+ }
+ 
+diff --git a/bluetooth/aidl/default/BluetoothHci.cpp b/bluetooth/aidl/default/BluetoothHci.cpp
+index 5ac3afe..96ae9ae 100644
+--- a/bluetooth/aidl/default/BluetoothHci.cpp
++++ b/bluetooth/aidl/default/BluetoothHci.cpp
+@@ -18,138 +18,28 @@
+ 
+ #include "BluetoothHci.h"
+ 
+-#include <cutils/properties.h>
+-#include <fcntl.h>
+-#include <netdb.h>
+-#include <netinet/in.h>
++#include <cerrno>
++#include <chrono>
++#include <cstring>
+ #include <poll.h>
+-#include <string.h>
+-#include <sys/uio.h>
+-#include <termios.h>
++#include <sys/eventfd.h>
++#include <unistd.h>
+ 
++#include "j72s_hci_transport.h"
+ #include "log/log.h"
+ 
+-namespace {
+-int SetTerminalRaw(int fd) {
+-  termios terminal_settings;
+-  int rval = tcgetattr(fd, &terminal_settings);
+-  if (rval < 0) {
+-    return rval;
+-  }
+-  cfmakeraw(&terminal_settings);
+-  rval = tcsetattr(fd, TCSANOW, &terminal_settings);
+-  return rval;
+-}
+-}  // namespace
+-
+ using namespace ::android::hardware::bluetooth::hci;
+-using namespace ::android::hardware::bluetooth::async;
+ using aidl::android::hardware::bluetooth::hal::Status;
+ 
+ namespace aidl::android::hardware::bluetooth::impl {
+ 
+-std::optional<std::string> GetSystemProperty(const std::string& property) {
+-  std::array<char, PROPERTY_VALUE_MAX> value_array{0};
+-  auto value_len = property_get(property.c_str(), value_array.data(), nullptr);
+-  if (value_len <= 0) {
+-    return std::nullopt;
+-  }
+-  return std::string(value_array.data(), value_len);
+-}
+-
+-bool starts_with(const std::string& str, const std::string& prefix) {
+-  return str.compare(0, prefix.length(), prefix) == 0;
+-}
+-
+-BluetoothHci::BluetoothHci(const std::string& dev_path) {
+-  char property_bytes[PROPERTY_VALUE_MAX];
+-  property_get("vendor.ser.bt-uart", property_bytes, dev_path.c_str());
+-  mDevPath = std::string(property_bytes);
+-}
+-
+-int BluetoothHci::getFdFromDevPath() {
+-  int fd = open(mDevPath.c_str(), O_RDWR);
+-  if (fd < 0) {
+-    ALOGE("Could not connect to bt: %s (%s)", mDevPath.c_str(),
+-          strerror(errno));
+-    return fd;
+-  }
+-  if (int ret = SetTerminalRaw(fd) < 0) {
+-    ALOGI("Could not make %s a raw terminal %d(%s)", mDevPath.c_str(), ret,
+-          strerror(errno));
+-  }
+-  return fd;
+-}
+-
+-void BluetoothHci::reset() {
+-  // Send a reset command and wait until the command complete comes back.
+-
+-  std::vector<uint8_t> reset = {0x03, 0x0c, 0x00};
+-
+-  auto resetPromise = std::make_shared<std::promise<void>>();
+-  auto resetFuture = resetPromise->get_future();
+-
+-  mH4 = std::make_shared<H4Protocol>(
+-      mFd,
+-      [](const std::vector<uint8_t>& raw_command) {
+-        ALOGI("Discarding %d bytes with command type",
+-              static_cast<int>(raw_command.size()));
+-      },
+-      [](const std::vector<uint8_t>& raw_acl) {
+-        ALOGI("Discarding %d bytes with acl type",
+-              static_cast<int>(raw_acl.size()));
+-      },
+-      [](const std::vector<uint8_t>& raw_sco) {
+-        ALOGI("Discarding %d bytes with sco type",
+-              static_cast<int>(raw_sco.size()));
+-      },
+-      [resetPromise](const std::vector<uint8_t>& raw_event) {
+-        std::vector<uint8_t> reset_complete = {0x0e, 0x04, 0x01,
+-                                               0x03, 0x0c, 0x00};
+-        bool valid = raw_event.size() == 6 &&
+-                     raw_event[0] == reset_complete[0] &&
+-                     raw_event[1] == reset_complete[1] &&
+-                     // Don't compare the number of packets field.
+-                     raw_event[3] == reset_complete[3] &&
+-                     raw_event[4] == reset_complete[4] &&
+-                     raw_event[5] == reset_complete[5];
+-        if (valid) {
+-          resetPromise->set_value();
+-        } else {
+-          ALOGI("Discarding %d bytes with event type",
+-                static_cast<int>(raw_event.size()));
+-        }
+-      },
+-      [](const std::vector<uint8_t>& raw_iso) {
+-        ALOGI("Discarding %d bytes with iso type",
+-              static_cast<int>(raw_iso.size()));
+-      },
+-      [this]() {
+-        ALOGI("HCI socket device disconnected while waiting for reset");
+-        mFdWatcher.StopWatchingFileDescriptors();
+-      });
+-  mFdWatcher.WatchFdForNonBlockingReads(mFd,
+-                                        [this](int) { mH4->OnDataReady(); });
+-
+-  send(PacketType::COMMAND, reset);
+-  auto status = resetFuture.wait_for(std::chrono::seconds(1));
+-  mFdWatcher.StopWatchingFileDescriptors();
+-  if (status == std::future_status::ready) {
+-    ALOGI("HCI Reset successful");
+-  } else {
+-    ALOGE("HCI Reset Response not received in one second");
+-  }
+-
+-  resetPromise.reset();
+-}
+-
+ void BluetoothHci::initialize(
+     const std::shared_ptr<hal::IBluetoothHciCallbacks>& cb) {
+   ALOGI(__func__);
+ 
+   if (cb == nullptr) {
+     ALOGE("cb == nullptr! -> Unable to call initializationComplete(ERR)");
+-    abort();
++    return;
+   }
+ 
+   HalState old_state = HalState::READY;
+@@ -164,42 +54,37 @@ void BluetoothHci::initialize(
+ 
+   if (old_state != HalState::READY) {
+     ALOGE("initialize: Unexpected State %d", static_cast<int>(old_state));
+-    close();
+     cb->initializationComplete(Status::ALREADY_INITIALIZED);
++    return;
+   }
+ 
+-  mCb = cb;
+-  management_.reset(new NetBluetoothMgmt);
+-  mFd = management_->openHci();
+-  if (mFd < 0) {
+-    management_.reset();
+-
+-    ALOGI("Unable to open Linux interface, trying default path.");
+-    mFd = getFdFromDevPath();
+-    if (mFd < 0) {
++  const int fd = ::j72s::bluetooth::openController("/sys/class/bluetooth", std::chrono::seconds(5));
++  int stopFd = -1;
++  if (fd >= 0) {
++    stopFd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
++  }
++  if (fd < 0 || stopFd < 0) {
++    const int error = fd < 0 ? -fd : errno;
++    if (fd >= 0) {
++      ::close(fd);
++    }
++    ALOGE("Cannot start J72s controller: %s", std::strerror(error));
++    {
++      std::lock_guard<std::mutex> guard(mStateMutex);
+       mState = HalState::READY;
+-      cb->initializationComplete(Status::UNABLE_TO_OPEN_INTERFACE);
+     }
++    cb->initializationComplete(Status::UNABLE_TO_OPEN_INTERFACE);
++    return;
+   }
+-
+-  // TODO: HCI Reset on emulators since the bluetooth controller
+-  // cannot be powered on/off during the HAL setup; and the stack
+-  // might received spurious packets/events during boottime.
+-  // Proper solution would be to use bt-virtio or vsock to better
+-  // control the link to rootcanal and the controller lifetime.
+-  const std::string kBoardProperty = "ro.product.board";
+-  const std::string kCuttlefishBoard = "cutf";
+-  auto board_name = GetSystemProperty(kBoardProperty);
+-  if (board_name.has_value() && (
+-        starts_with(board_name.value(), "cutf") ||
+-        starts_with(board_name.value(), "goldfish"))) {
+-    reset();
+-  }
++  mFd = fd;
++  mStopFd = stopFd;
++  mDisconnected = false;
++  mCb = cb;
+ 
+   mH4 = std::make_shared<H4Protocol>(
+       mFd,
+       [](const std::vector<uint8_t>& /* raw_command */) {
+-        LOG_ALWAYS_FATAL("Unexpected command!");
++        ALOGW("Ignoring unexpected inbound HCI command");
+       },
+       [this](const std::vector<uint8_t>& raw_acl) {
+         mCb->aclDataReceived(raw_acl);
+@@ -213,19 +98,33 @@ void BluetoothHci::initialize(
+       [this](const std::vector<uint8_t>& raw_iso) {
+         mCb->isoDataReceived(raw_iso);
+       },
+-      [this]() {
+-        ALOGI("HCI socket device disconnected");
+-        mFdWatcher.StopWatchingFileDescriptors();
+-      });
+-  mFdWatcher.WatchFdForNonBlockingReads(mFd,
+-                                        [this](int) { mH4->OnDataReady(); });
++      [this]() { mDisconnected = true; });
++  mReader = std::thread(&BluetoothHci::readPackets, this);
+ 
+   {
+     std::lock_guard<std::mutex> guard(mStateMutex);
+     mState = HalState::ONE_CLIENT;
+   }
+   ALOGI("initialization complete");
+-  mCb->initializationComplete(Status::SUCCESS);
++  cb->initializationComplete(Status::SUCCESS);
++}
++
++void BluetoothHci::readPackets() {
++  pollfd fds[] = {{mStopFd, POLLIN, 0}, {mFd, POLLIN, 0}};
++  while (!mDisconnected) {
++    const int result = TEMP_FAILURE_RETRY(poll(fds, 2, -1));
++    if (fds[0].revents != 0) {
++      return;
++    }
++    if (result < 0 || (fds[1].revents & (POLLERR | POLLHUP | POLLNVAL))) {
++      break;
++    }
++    if (fds[1].revents & POLLIN) {
++      mH4->OnDataReady();
++    }
++  }
++  mDisconnected = true;
++  ALOGW("J72s Bluetooth HCI socket disconnected");
+ }
+ 
+ void BluetoothHci::close() {
+@@ -233,23 +132,22 @@ void BluetoothHci::close() {
+   {
+     std::lock_guard<std::mutex> guard(mStateMutex);
+     if (mState != HalState::ONE_CLIENT) {
+-      LOG_ALWAYS_FATAL_IF(mState == HalState::INITIALIZING,
+-                          "mState is INITIALIZING");
+-      ALOGI("Already closed");
++      return;
+     }
+     mState = HalState::CLOSING;
+   }
+ 
+-  mFdWatcher.StopWatchingFileDescriptors();
++  TEMP_FAILURE_RETRY(eventfd_write(mStopFd, 1));
++  mReader.join();
++  ::close(mStopFd);
+ 
+-  if (management_) {
+-    management_->closeHci();
+-  } else {
+-    ::close(mFd);
+-  }
++  ::close(mFd);
+ 
+   {
+     std::lock_guard<std::mutex> guard(mStateMutex);
++    mFd = -1;
++    mStopFd = -1;
++    mCb.reset();
+     mState = HalState::READY;
+     mH4 = nullptr;
+   }
+@@ -279,13 +177,13 @@ void BluetoothHci::sendIsoData(const std::vector<uint8_t>& packet) {
+ void BluetoothHci::send(PacketType type, const std::vector<uint8_t>& v) {
+   if (v.empty()) {
+     ALOGE("Packet is empty, no data was found to be sent");
+-    abort();
++    return;
+   }
+ 
+   std::lock_guard<std::mutex> guard(mStateMutex);
+-  if (mH4 == nullptr) {
++  if (mState != HalState::ONE_CLIENT || mDisconnected) {
+     ALOGE("Illegal State");
+-    abort();
++    return;
+   }
+ 
+   mH4->Send(type, v);
+diff --git a/bluetooth/aidl/default/BluetoothHci.h b/bluetooth/aidl/default/BluetoothHci.h
+index 5c31468..41d8021 100644
+--- a/bluetooth/aidl/default/BluetoothHci.h
++++ b/bluetooth/aidl/default/BluetoothHci.h
+@@ -16,21 +16,22 @@
+ 
+ #pragma once
+ 
+-#include <hal/ffi.h>
++#include <atomic>
++#include <functional>
++#include <memory>
++#include <mutex>
++#include <thread>
+ 
+-#include <future>
+-#include <string>
++#include <hal/ffi.h>
+ 
+-#include "async_fd_watcher.h"
+ #include "h4_protocol.h"
+-#include "net_bluetooth_mgmt.h"
+ 
+ namespace aidl::android::hardware::bluetooth::impl {
+ 
+-// This Bluetooth HAL implementation connects with a serial port at dev_path_.
++// The kernel owns the J72s Broadcom UART and exposes a Bluetooth HCI socket.
+ class BluetoothHci : public hal::IBluetoothHci {
+  public:
+-  BluetoothHci(const std::string& dev_path = "/dev/hvc5");
++  ~BluetoothHci() override { close(); }
+ 
+   void initialize(
+       const std::shared_ptr<hal::IBluetoothHciCallbacks>& cb) override;
+@@ -47,27 +48,19 @@ class BluetoothHci : public hal::IBluetoothHci {
+ 
+   void clientDied() override;
+ 
+-  static void OnPacketReady();
+-
+-  static BluetoothHci* get();
+-
+  private:
+   int mFd{-1};
+   std::shared_ptr<hal::IBluetoothHciCallbacks> mCb = nullptr;
+ 
+   std::shared_ptr<::android::hardware::bluetooth::hci::H4Protocol> mH4;
+ 
+-  std::string mDevPath;
+-
+-  ::android::hardware::bluetooth::async::AsyncFdWatcher mFdWatcher;
++  int mStopFd{-1};
++  std::thread mReader;
++  std::atomic_bool mDisconnected{false};
+ 
+-  int getFdFromDevPath();
++  void readPackets();
+   void send(::android::hardware::bluetooth::hci::PacketType type,
+             const std::vector<uint8_t>& packet);
+-  std::unique_ptr<NetBluetoothMgmt> management_{};
+-
+-  // Send a reset command and discard all packets until a reset is received.
+-  void reset();
+ 
+   // Don't close twice or open before close is complete
+   std::mutex mStateMutex;
+diff --git a/bluetooth/aidl/default/bluetooth-service-default.rc b/bluetooth/aidl/default/bluetooth-service-default.rc
+index dc78698..d4b0d2e 100644
+--- a/bluetooth/aidl/default/bluetooth-service-default.rc
++++ b/bluetooth/aidl/default/bluetooth-service-default.rc
+@@ -4,3 +4,4 @@ service vendor.bluetooth-default /vendor/bin/hw/android.hardware.bluetooth-servi
+     user bluetooth
+     group bluetooth
+     task_profiles HighPerformance
++    interface aidl android.hardware.bluetooth.IBluetoothHci/default

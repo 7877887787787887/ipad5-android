@@ -1,0 +1,7 @@
+/(vendor|system/vendor)/bin/hw/android\.hardware\.health-service\.j72s u:object_r:hal_health_default_exec:s0
+
+# The J72s HDQ driver registers a root W1 master. The gauge uses family 01.
+/sys/devices/w1_bus_master[0-9]+/01-[0-9a-f]{12}/power_supply/battery/(type|present|status|health|capacity|voltage_now|temp|technology|current_now|charge_now|charge_full|charge_full_design|cycle_count|capacity_level) -- u:object_r:sysfs_batteryinfo:s0
+
+# Tristar is the charger platform child of the PMIC on the board's I2C controller.
+/sys/devices/platform/soc/20a110000\.i2c/i2c-[0-9]+/[0-9]+-003c/[^/]*charger[^/]*/power_supply/lightning/(type|online|current_max|usb_type) -- u:object_r:sysfs_batteryinfo:s0

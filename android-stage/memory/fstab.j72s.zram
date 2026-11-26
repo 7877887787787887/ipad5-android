@@ -1,0 +1,2 @@
+# blk_device      mount_point  fs_type  mount_flags  fs_mgr_flags
+/dev/block/zram0  none         swap     defaults     wait,zramsize=805306368,swapprio=100

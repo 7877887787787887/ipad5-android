@@ -1,0 +1,11 @@
+diff --git a/backend/BackendManager.cpp b/backend/BackendManager.cpp
+--- a/backend/BackendManager.cpp
++++ b/backend/BackendManager.cpp
+@@ -24,6 +24,7 @@ namespace android {
+ 
+ // NOLINTNEXTLINE(cert-err58-cpp)
+ const std::vector<std::string> BackendManager::kClientDevices = {
++    "adbe",
+     "kirin",
+     "mediatek-drm",
+     "pl111",

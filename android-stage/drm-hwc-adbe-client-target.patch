@@ -1,0 +1,85 @@
+diff --git a/drm/DrmDevice.h b/drm/DrmDevice.h
+--- a/drm/DrmDevice.h
++++ b/drm/DrmDevice.h
+@@ -68,6 +68,10 @@
+   }
+ 
+   std::string GetName() const;
++
++  bool IsAdbe() const {
++    return is_adbe_;
++  }
+ 
+   auto RegisterUserPropertyBlob(void *data, size_t length) const
+       -> DrmModeUserPropertyBlobUnique;
+@@ -119,6 +123,7 @@
+   static auto IsKMSDev(const char *path) -> bool;
+ 
+   SharedFd fd_;
++  bool is_adbe_{};
+   const uint32_t index_in_dev_array_;
+ 
+   std::vector<std::unique_ptr<DrmConnector>> connectors_;
+diff --git a/drm/DrmDevice.cpp b/drm/DrmDevice.cpp
+--- a/drm/DrmDevice.cpp
++++ b/drm/DrmDevice.cpp
+@@ -61,6 +61,7 @@ auto DrmDevice::Init(const char *path) -> int {
+     ALOGE("Failed to open dri %s: %s", path, strerror(errno));
+     return -ENODEV;
+   }
++  is_adbe_ = GetName() == "adbe";
+ 
+   int ret = drmSetClientCap(*GetFd(), DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1);
+   if (ret != 0) {
+diff --git a/hwc3/CommandResultWriter.h b/hwc3/CommandResultWriter.h
+--- a/hwc3/CommandResultWriter.h
++++ b/hwc3/CommandResultWriter.h
+@@ -20,6 +20,7 @@
+ #include <android-base/unique_fd.h>
+ 
+ #include "Utils.h"
++#include "aidl/android/hardware/graphics/composer3/ClientTargetPropertyWithBrightness.h"
+ #include "aidl/android/hardware/graphics/composer3/CommandError.h"
+ #include "aidl/android/hardware/graphics/composer3/CommandResultPayload.h"
+ #include "aidl/android/hardware/graphics/composer3/PresentFence.h"
+@@ -124,6 +125,16 @@
+     }
+   }
+ 
++  void AddAdbeClientTarget(int64_t display_id) {
++    ClientTargetPropertyWithBrightness target;
++    target.display = display_id;
++    target.clientTargetProperty.pixelFormat = common::PixelFormat::BGRA_8888;
++    target.clientTargetProperty.dataspace = common::Dataspace::SRGB;
++    target.brightness = 1.0F;
++    target.dimmingStage = DimmingStage::NONE;
++    results_->emplace_back(std::move(target));
++  }
++
+   void AddPresentOrValidateResult(int64_t display_id,
+                                   const PresentOrValidate::Result& pov_result) {
+     PresentOrValidate pov_command;
+diff --git a/hwc3/ComposerClient.cpp b/hwc3/ComposerClient.cpp
+--- a/hwc3/ComposerClient.cpp
++++ b/hwc3/ComposerClient.cpp
+@@ -46,6 +46,8 @@
+ 
+ #include "bufferinfo/BufferInfo.h"
+ #include "compositor/DisplayInfo.h"
++#include "drm/DrmDevice.h"
++#include "drm/DrmDisplayPipeline.h"
+ #include "hwc2_device/HwcDisplay.h"
+ #include "hwc2_device/HwcDisplayConfigs.h"
+ #include "hwc2_device/HwcLayer.h"
+@@ -731,6 +733,11 @@
+                                             composition_type));
+     }
+     cmd_result_writer_->AddChanges(changes);
++    // Match ADBE's linear ARGB scanout with Android's BGRA byte layout.
++    if (!display->IsInHeadlessMode() &&
++        display->GetPipe().device->IsAdbe()) {
++      cmd_result_writer_->AddAdbeClientTarget(command.display);
++    }
+     auto hwc3_display = DrmHwcThree::GetHwc3Display(*display);
+     hwc3_display->must_validate = false;
+     hwc3_display->desired_present_time = AidlToPresentTimeNs(

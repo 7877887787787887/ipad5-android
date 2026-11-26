@@ -1,0 +1,12 @@
+diff --git a/src/compiler/nir/nir.h b/src/compiler/nir/nir.h
+--- a/src/compiler/nir/nir.h
++++ b/src/compiler/nir/nir.h
+@@ -3024,7 +3024,7 @@ nir_get_tex_src(nir_tex_instr *tex, nir_tex_src_type type_)
+ }
+ 
+ static inline nir_deref_instr *
+-nir_get_tex_deref(nir_tex_instr *tex, nir_tex_src_type type_)
++nir_get_tex_deref(const nir_tex_instr *tex, nir_tex_src_type type_)
+ {
+    int idx = nir_tex_instr_src_index(tex, type_);
+    if (idx < 0)

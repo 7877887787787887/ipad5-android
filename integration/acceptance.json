@@ -30,7 +30,8 @@
       "id": "audio",
       "interfaces": [
         "ALSA",
-        "ASoC"
+        "ASoC",
+        "Android primary Audio AIDL"
       ],
       "acceptance": "Both speakers, headphone routing, microphone and safe mixer limits"
     },
@@ -38,7 +39,8 @@
       "id": "wifi",
       "interfaces": [
         "cfg80211",
-        "brcmfmac"
+        "brcmfmac",
+        "Android Wi-Fi and Supplicant AIDL"
       ],
       "acceptance": "2.4/5 GHz association, negotiated PHY rate, bidirectional throughput and reconnect; regulatory limits retained"
     },
@@ -46,7 +48,8 @@
       "id": "bluetooth",
       "interfaces": [
         "HCI",
-        "BlueZ"
+        "BlueZ",
+        "Android Bluetooth HCI AIDL"
       ],
       "acceptance": "Pairing, HID, audio and reconnect"
     },
@@ -88,6 +91,15 @@
         "block"
       ],
       "acceptance": "Read-only enumeration first; isolated Android storage before write tests"
+    },
+    {
+      "id": "memory",
+      "interfaces": [
+        "Android low-RAM mode",
+        "memory PSI",
+        "zram"
+      ],
+      "acceptance": "Cold boot and stable foreground app switching within 2 GB physical RAM, with working display, touch, Wi-Fi and audio and with system and vendor images backed by storage"
     },
     {
       "id": "usb",

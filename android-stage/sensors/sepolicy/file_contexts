@@ -1,0 +1,4 @@
+/(vendor|system/vendor)/bin/hw/android\.hardware\.sensors-service\.j72s u:object_r:hal_sensors_j72s_exec:s0
+/sys/devices/platform/soc/210800000\.aop(/[^/]+)*/iio:device[0-9]+(/.*)? u:object_r:vendor_sysfs_j72s_iio:s0
+/sys/devices/platform/soc/210800000\.aop(/[^/]+)*/iio:device[0-9]+/(sampling_frequency|current_timestamp_clock|buffer0?/enable|(buffer0|scan_elements)/in_(accel_[xyz]|anglvel_[xyz]|pressure|timestamp)_en) -- u:object_r:vendor_sysfs_j72s_iio_control:s0
+/sys/devices/platform/soc/20a112000\.i2c(/[^/]+)*/[0-9]+-0039/iio:device[0-9]+(/.*)? u:object_r:vendor_sysfs_j72s_iio:s0

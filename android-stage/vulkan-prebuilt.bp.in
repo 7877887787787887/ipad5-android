@@ -1,0 +1,19 @@
+cc_prebuilt_library_shared {
+    name: "vulkan.j72s",
+    vendor: true,
+    compile_multilib: "64",
+    relative_install_path: "hw",
+    arch: {
+        arm64: {
+            srcs: ["vulkan.j72s.so"],
+        },
+    },
+    shared_libs: [
+        "libhardware",
+        "liblog",
+        "libnativewindow",
+        "libsync",
+        "libz",
+    ],
+    strip: { none: true },
+}

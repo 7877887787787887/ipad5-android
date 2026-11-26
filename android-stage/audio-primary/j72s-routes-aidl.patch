@@ -1,0 +1,289 @@
+diff --git a/audio/aidl/default/Android.bp b/audio/aidl/default/Android.bp
+index a8d8a39..07a9d86 100644
+--- a/audio/aidl/default/Android.bp
++++ b/audio/aidl/default/Android.bp
+@@ -75,6 +75,7 @@ cc_library {
+         "primary/PrimaryMixer.cpp",
+         "primary/StreamPrimary.cpp",
+         "primary/alsa_endpoint.c",
++        "primary/alsa_controls.c",
+         "r_submix/ModuleRemoteSubmix.cpp",
+         "r_submix/SubmixRoute.cpp",
+         "r_submix/StreamRemoteSubmix.cpp",
+diff --git a/audio/aidl/default/ModulePrimary.cpp b/audio/aidl/default/ModulePrimary.cpp
+index 6cb9251..1caf07e 100644
+--- a/audio/aidl/default/ModulePrimary.cpp
++++ b/audio/aidl/default/ModulePrimary.cpp
+@@ -42,6 +42,25 @@ using aidl::android::media::audio::common::MicrophoneInfo;
+ 
+ namespace aidl::android::hardware::audio::core {
+ 
++ndk::ScopedAStatus ModulePrimary::getMicMute(bool* _aidl_return) {
++    *_aidl_return = StreamPrimary::isJ72sMicMuted();
++    return ndk::ScopedAStatus::ok();
++}
++
++ndk::ScopedAStatus ModulePrimary::setMicMute(bool in_mute) {
++    StreamPrimary::setJ72sMicMuted(in_mute);
++    return ndk::ScopedAStatus::ok();
++}
++
++ndk::ScopedAStatus ModulePrimary::populateConnectedDevicePort(AudioPort* audioPort, int32_t portId) {
++    if (audioPort->ext.getTag() == AudioPortExt::device &&
++        StreamPrimary::isJ72sHeadphone(audioPort->ext.get<AudioPortExt::device>().device) &&
++        !audioPort->profiles.empty()) {
++        return ndk::ScopedAStatus::ok();
++    }
++    return Module::populateConnectedDevicePort(audioPort, portId);
++}
++
+ ndk::ScopedAStatus ModulePrimary::getTelephony(std::shared_ptr<ITelephony>* _aidl_return) {
+     if (!mTelephony) {
+         mTelephony = ndk::SharedRefBase::make<Telephony>();
+diff --git a/audio/aidl/default/include/core-impl/ModulePrimary.h b/audio/aidl/default/include/core-impl/ModulePrimary.h
+index c93deed..2f8ba11 100644
+--- a/audio/aidl/default/include/core-impl/ModulePrimary.h
++++ b/audio/aidl/default/include/core-impl/ModulePrimary.h
+@@ -26,6 +26,11 @@ class ModulePrimary final : public Module {
+         : Module(Type::DEFAULT, std::move(config)) {}
+ 
+   protected:
++    ndk::ScopedAStatus getMicMute(bool* _aidl_return) override;
++    ndk::ScopedAStatus setMicMute(bool in_mute) override;
++    ndk::ScopedAStatus populateConnectedDevicePort(
++            ::aidl::android::media::audio::common::AudioPort* audioPort, int32_t portId) override;
++
+     ndk::ScopedAStatus getTelephony(std::shared_ptr<ITelephony>* _aidl_return) override;
+ 
+     ndk::ScopedAStatus calculateBufferSizeFrames(
+diff --git a/audio/aidl/default/include/core-impl/StreamPrimary.h b/audio/aidl/default/include/core-impl/StreamPrimary.h
+index 44943c9..8f4475d 100644
+--- a/audio/aidl/default/include/core-impl/StreamPrimary.h
++++ b/audio/aidl/default/include/core-impl/StreamPrimary.h
+@@ -44,6 +44,10 @@ class StreamPrimary : public StreamAlsa {
+     void shutdown() override;
+ 
+     // Overridden methods of 'StreamCommonImpl', called on a Binder thread.
++    static bool isJ72sHeadphone(const ::aidl::android::media::audio::common::AudioDevice& device);
++    static bool isJ72sMicMuted();
++    static void setJ72sMicMuted(bool muted);
++
+     ndk::ScopedAStatus setConnectedDevices(const ConnectedDevices& devices) override;
+ 
+   protected:
+@@ -73,11 +77,13 @@ class StreamPrimary : public StreamAlsa {
+     DriverStubImpl mStubDriver;
+     mutable std::mutex mLock;
+     AlsaDeviceId mAlsaDeviceId GUARDED_BY(mLock) = kStubDeviceId;
+-    bool mUseJ72sPlayback GUARDED_BY(mLock) = false;
++    bool mUseJ72sPcm GUARDED_BY(mLock) = false;
+ 
+     // Used by the worker thread only.
+     AlsaDeviceId mCurrAlsaDeviceId = kStubDeviceId;
+-    bool mCurrUseJ72sPlayback = false;
++    bool mCurrUseJ72sPcm = false;
++    int mJ72sCaptureCard = -1;
++    void closeJ72sCapture();
+ };
+ 
+ class StreamInPrimary final : public StreamIn, public StreamPrimary, public StreamInHwGainHelper {
+diff --git a/audio/aidl/default/primary/StreamPrimary.cpp b/audio/aidl/default/primary/StreamPrimary.cpp
+index 14e0fea..8ec23ec 100644
+--- a/audio/aidl/default/primary/StreamPrimary.cpp
++++ b/audio/aidl/default/primary/StreamPrimary.cpp
+@@ -18,7 +18,9 @@
+ 
+ #include <sound/asound.h>
+ 
++#include <atomic>
+ #include <cstdio>
++#include <cstring>
+ 
+ #include <android-base/logging.h>
+ #include <android-base/parseint.h>
+@@ -27,6 +29,7 @@
+ #include <error/Result.h>
+ #include <error/expected_utils.h>
+ 
++#include "alsa_controls.h"
+ #include "alsa_endpoint.h"
+ #include "core-impl/StreamPrimary.h"
+ 
+@@ -45,6 +48,8 @@ namespace aidl::android::hardware::audio::core {
+ namespace {
+ 
+ constexpr char kJ72sSpeakerAddress[] = "j72s-speaker";
++constexpr char kJ72sMicAddress[] = "j72s-mic";
++std::atomic_bool gJ72sMicMuted = false;
+ 
+ }  // namespace
+ 
+@@ -75,7 +80,10 @@ StreamPrimary::StreamPrimary(StreamContext* context, const Metadata& metadata)
+ }
+ 
+ ::android::status_t StreamPrimary::standby() {
+-    return isStubStreamOnWorker() ? mStubDriver.standby() : StreamAlsa::standby();
++    if (isStubStreamOnWorker()) return mStubDriver.standby();
++    const auto result = StreamAlsa::standby();
++    closeJ72sCapture();
++    return result;
+ }
+ 
+ ::android::status_t StreamPrimary::start() {
+@@ -86,16 +94,29 @@ StreamPrimary::StreamPrimary(StreamContext* context, const Metadata& metadata)
+         shutdownAlsaStream =
+                 mCurrAlsaDeviceId != mAlsaDeviceId && mCurrAlsaDeviceId != kStubDeviceId;
+         mCurrAlsaDeviceId = mAlsaDeviceId;
+-        mCurrUseJ72sPlayback = mUseJ72sPlayback;
++        mCurrUseJ72sPcm = mUseJ72sPcm;
+     }
+     if (shutdownAlsaStream) {
+         StreamAlsa::shutdown();  // Close currently opened ALSA devices.
++        closeJ72sCapture();
+     }
+     if (isStub) {
+         return mStubDriver.start();
+     }
+-    RETURN_STATUS_IF_ERROR(StreamAlsa::start());
+-    if (mCurrUseJ72sPlayback) {
++    if (mCurrUseJ72sPcm && mIsInput && mJ72sCaptureCard == -1) {
++        const int card = mCurrAlsaDeviceId.first;
++        if (const int error = j72s_set_capture_switch(card, true); error != 0) {
++            LOG(ERROR) << __func__ << ": cannot enable J72s capture: " << error;
++            return error;
++        }
++        mJ72sCaptureCard = card;
++    }
++    const auto result = StreamAlsa::start();
++    if (result != ::android::OK) {
++        closeJ72sCapture();
++        return result;
++    }
++    if (mCurrUseJ72sPcm) {
+         return ::android::OK;
+     }
+     mStartTimeNs = ::android::uptimeNanos();
+@@ -109,8 +130,14 @@ StreamPrimary::StreamPrimary(StreamContext* context, const Metadata& metadata)
+     if (isStubStreamOnWorker()) {
+         return mStubDriver.transfer(buffer, frameCount, actualFrameCount, latencyMs);
+     }
+-    if (mCurrUseJ72sPlayback) {
+-        return StreamAlsa::transfer(buffer, frameCount, actualFrameCount, latencyMs);
++    if (mCurrUseJ72sPcm) {
++        const bool mutedAtStart = mIsInput && isJ72sMicMuted();
++        const auto result = StreamAlsa::transfer(buffer, frameCount, actualFrameCount, latencyMs);
++        // Apply mute to the returned samples, including any captured before it was requested.
++        if (result == ::android::OK && mIsInput && (mutedAtStart || isJ72sMicMuted())) {
++            std::memset(buffer, 0, *actualFrameCount * mFrameSizeBytes);
++        }
++        return result;
+     }
+     // This is a workaround for the emulator implementation which has a host-side buffer
+     // and is not being able to achieve real-time behavior similar to ADSPs (b/302587331).
+@@ -146,7 +173,7 @@ StreamPrimary::StreamPrimary(StreamContext* context, const Metadata& metadata)
+ }
+ 
+ ::android::status_t StreamPrimary::refinePosition(StreamDescriptor::Position* position) {
+-    if (mCurrUseJ72sPlayback) {
++    if (mCurrUseJ72sPcm) {
+         return StreamAlsa::refinePosition(position);
+     }
+     // Since not all data is actually sent to the HAL, use the position maintained by Stream class
+@@ -154,11 +181,34 @@ StreamPrimary::StreamPrimary(StreamContext* context, const Metadata& metadata)
+     return ::android::OK;
+ }
+ 
++void StreamPrimary::closeJ72sCapture() {
++    if (mJ72sCaptureCard != -1) {
++        if (const int error = j72s_set_capture_switch(mJ72sCaptureCard, false); error != 0) {
++            LOG(WARNING) << __func__ << ": cannot disable J72s capture: " << error;
++        }
++        mJ72sCaptureCard = -1;
++    }
++}
++
+ void StreamPrimary::shutdown() {
+     StreamAlsa::shutdown();
++    closeJ72sCapture();
+     mStubDriver.shutdown();
+ }
+ 
++bool StreamPrimary::isJ72sHeadphone(const AudioDevice& device) {
++    return device.type.type == AudioDeviceType::OUT_HEADPHONE &&
++            device.type.connection == AudioDeviceDescription::CONNECTION_ANALOG;
++}
++
++bool StreamPrimary::isJ72sMicMuted() {
++    return gJ72sMicMuted.load();
++}
++
++void StreamPrimary::setJ72sMicMuted(bool muted) {
++    gJ72sMicMuted.store(muted);
++}
++
+ ndk::ScopedAStatus StreamPrimary::setConnectedDevices(const ConnectedDevices& devices) {
+     LOG(DEBUG) << __func__ << ": " << ::android::internal::ToString(devices);
+     if (devices.size() > 1) {
+@@ -166,20 +216,28 @@ ndk::ScopedAStatus StreamPrimary::setConnectedDevices(const ConnectedDevices& de
+                    << devices.size();
+         return ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+     }
+-    const bool useJ72sPlayback = !devices.empty() &&
++    const bool speaker = !devices.empty() &&
+             devices[0].address.getTag() == AudioDeviceAddress::id &&
+             devices[0].address.get<AudioDeviceAddress::id>() == kJ72sSpeakerAddress;
++    const bool microphone = !devices.empty() &&
++            devices[0].address.getTag() == AudioDeviceAddress::id &&
++            devices[0].address.get<AudioDeviceAddress::id>() == kJ72sMicAddress;
++    const bool headphone = !devices.empty() && isJ72sHeadphone(devices[0]);
++    const bool useJ72sPcm = speaker || microphone || headphone;
+     AlsaDeviceId alsaDeviceId = kStubDeviceId;
+-    if (useJ72sPlayback) {
+-        if (mIsInput || devices[0].type.type != AudioDeviceType::OUT_SPEAKER ||
+-            !devices[0].type.connection.empty()) {
+-            LOG(ERROR) << __func__ << ": J72s route requires a built-in speaker output";
++    if (useJ72sPcm) {
++        if (mIsInput != microphone ||
++            (microphone && (devices[0].type.type != AudioDeviceType::IN_MICROPHONE ||
++                            !devices[0].type.connection.empty())) ||
++            (speaker && (devices[0].type.type != AudioDeviceType::OUT_SPEAKER ||
++                         !devices[0].type.connection.empty()))) {
++            LOG(ERROR) << __func__ << ": device does not match the J72s PCM route";
+             return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_ARGUMENT);
+         }
+         j72s_pcm_endpoint endpoint{};
+-        if (const int error = j72s_find_pcm_endpoint(SNDRV_PCM_STREAM_PLAYBACK, &endpoint);
+-            error != 0) {
+-            LOG(ERROR) << __func__ << ": J72s playback endpoint discovery failed: " << error;
++        const int direction = microphone ? SNDRV_PCM_STREAM_CAPTURE : SNDRV_PCM_STREAM_PLAYBACK;
++        if (const int error = j72s_find_pcm_endpoint(direction, &endpoint); error != 0) {
++            LOG(ERROR) << __func__ << ": J72s endpoint discovery failed: " << error;
+             return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_STATE);
+         }
+         alsaDeviceId = {endpoint.card, endpoint.device};
+@@ -188,8 +246,15 @@ ndk::ScopedAStatus StreamPrimary::setConnectedDevices(const ConnectedDevices& de
+     }
+     {
+         std::lock_guard l(mLock);
++        if (speaker || headphone) {
++            const auto output = headphone ? J72S_AUDIO_HEADPHONES : J72S_AUDIO_SPEAKERS;
++            if (const int error = j72s_set_audio_output(alsaDeviceId.first, output); error != 0) {
++                LOG(ERROR) << __func__ << ": J72s mixer route selection failed: " << error;
++                return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_STATE);
++            }
++        }
+         mAlsaDeviceId = alsaDeviceId;
+-        mUseJ72sPlayback = useJ72sPlayback;
++        mUseJ72sPcm = useJ72sPcm;
+     }
+     if (!devices.empty()) {
+         auto streamDataProcessor = getContext().getStreamDataProcessor().lock();
+@@ -209,7 +274,7 @@ std::vector<alsa::DeviceProfile> StreamPrimary::getDeviceProfiles() {
+ 
+ bool StreamPrimary::supportsHardwareControls() {
+     std::lock_guard l(mLock);
+-    return mAlsaDeviceId != kStubDeviceId && !mUseJ72sPlayback;
++    return mAlsaDeviceId != kStubDeviceId && !mUseJ72sPcm;
+ }
+ 
+ // static

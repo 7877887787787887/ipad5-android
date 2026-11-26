@@ -4,14 +4,15 @@
 #include <cerrno>
 #include <cstdint>
 #include <filesystem>
+#include <fcntl.h>
 #include <fstream>
 #include <mutex>
 #include <string>
-#include <vector>
+#include <unistd.h>
 
 namespace j72s {
 class Backlight {
-    std::filesystem::path node_;
+    const std::filesystem::path node_;
     std::mutex mutex_;
     static bool readValue(const std::filesystem::path& path, int& value) {
         std::ifstream in(path);
@@ -19,21 +20,16 @@ class Backlight {
         return bool(in >> value) && !(in >> extra) && value >= 0;
     }
 public:
-    explicit Backlight(const std::filesystem::path& root = "/sys/class/backlight") {
+    explicit Backlight(const std::filesystem::path& root =
+                           "/sys/devices/platform/soc/20e200080.backlight/backlight")
+        : node_(root / "20e200080.backlight") {}
+
+    bool available() const {
         std::error_code ec;
-        std::vector<std::filesystem::path> candidates;
-        std::filesystem::directory_iterator it(root, ec), end;
-        while (!ec && it != end) {
-            int maximum = 0;
-            if (readValue(it->path() / "max_brightness", maximum) && maximum > 0 &&
-                std::filesystem::exists(it->path() / "brightness", ec) && !ec)
-                candidates.push_back(it->path());
-            it.increment(ec);
-        }
-        // Do not guess which device to control when enumeration is ambiguous.
-        if (!ec && candidates.size() == 1) node_ = candidates.front();
+        int maximum = 0;
+        return readValue(node_ / "max_brightness", maximum) && maximum > 0 &&
+            std::filesystem::is_regular_file(node_ / "brightness", ec);
     }
-    bool available() const { return !node_.empty(); }
     static int scale(uint32_t argb, int maximum) {
         if (maximum <= 0) return 0;
         const uint64_t red = (argb >> 16) & 255, green = (argb >> 8) & 255, blue = argb & 255;
@@ -42,15 +38,22 @@ public:
     }
     int set(uint32_t argb) {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (!available()) return ENODEV;
         int max = 0;
-        if (!readValue(node_ / "max_brightness", max) || max <= 0) return EIO;
+        if (!readValue(node_ / "max_brightness", max) || max <= 0) {
+            std::error_code ec;
+            return !std::filesystem::exists(node_, ec) && !ec ? ENODEV : EIO;
+        }
         const int requested = std::clamp(scale(argb, max), 0, max);
-        std::ofstream out(node_ / "brightness");
-        if (!out) return EIO;
-        out << requested << '\n';
-        out.close();
-        return out.fail() ? EIO : 0;
+        const std::string value = std::to_string(requested) + '\n';
+        const int fd = open((node_ / "brightness").c_str(),
+                            O_WRONLY | O_TRUNC | O_CLOEXEC | O_NOFOLLOW);
+        if (fd < 0) return EIO;
+        ssize_t written;
+        do {
+            written = write(fd, value.data(), value.size());
+        } while (written < 0 && errno == EINTR);
+        const int closed = close(fd);
+        return written == static_cast<ssize_t>(value.size()) && closed == 0 ? 0 : EIO;
     }
 };
 } // namespace j72s

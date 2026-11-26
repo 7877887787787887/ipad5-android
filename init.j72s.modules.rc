@@ -1,0 +1,10 @@
+# Load the vendor drivers after /vendor is mounted and before the HAL class starts.
+on init
+    exec_start vendor.j72s-modules
+
+service vendor.j72s-modules /vendor/bin/modprobe -b -s --all=/vendor/lib/modules/modules.load
+    user root
+    group root
+    seclabel u:r:vendor_modprobe:s0
+    disabled
+    oneshot

@@ -1,0 +1,1 @@
+genfscon sysfs /bus/iio u:object_r:vendor_sysfs_j72s_iio:s0

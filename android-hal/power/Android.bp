@@ -1,0 +1,22 @@
+cc_test {
+    name: "j72s-power-battery-test",
+    host_supported: true,
+    srcs: ["battery_test.cpp"],
+    gtest: false,
+    cpp_std: "c++17",
+    cflags: ["-Wall", "-Wextra", "-Werror", "-UNDEBUG"],
+    test_suites: ["general-tests"],
+}
+cc_binary {
+    name: "android.hardware.health-service.j72s",
+    vendor: true,
+    relative_install_path: "hw",
+    defaults: ["libhealth_aidl_impl_user"],
+    static_libs: ["libhealth_aidl_impl"],
+    srcs: ["service.cpp"],
+    cpp_std: "c++20",
+    cflags: ["-Wall", "-Wextra", "-Werror"],
+    overrides: ["android.hardware.health-service.example", "charger"],
+    init_rc: ["android.hardware.health-service.j72s.rc"],
+    vintf_fragments: ["android.hardware.health-service.j72s.xml"],
+}

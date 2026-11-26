@@ -1,0 +1,2 @@
+# Orchard Apple DWI class-device uevent. Only brightness is writable by the HAL.
+/sys/devices/platform/soc/20e200080.backlight/backlight/20e200080.backlight brightness 0660 root system

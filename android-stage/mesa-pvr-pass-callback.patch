@@ -1,0 +1,12 @@
+diff --git a/src/imagination/vulkan/pvr_arch_g9p_gfx.c b/src/imagination/vulkan/pvr_arch_g9p_gfx.c
+--- a/src/imagination/vulkan/pvr_arch_g9p_gfx.c
++++ b/src/imagination/vulkan/pvr_arch_g9p_gfx.c
+@@ -1035,7 +1035,7 @@
+                         nir_metadata_control_flow, &v);
+          }
+          {
+-            const unsigned zero = 0;
++            unsigned zero = 0;
+ 
+             NIR_PASS(_, vs_nir, nir_shader_intrinsics_pass, view_index_constant,
+                      nir_metadata_control_flow, &zero);
