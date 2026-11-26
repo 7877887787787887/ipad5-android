@@ -70,7 +70,8 @@ class VendorProductTest(unittest.TestCase):
             "\t@printf '%s\\n' '$(COMMON_LUNCH_CHOICES)' '$(PRODUCT_PACKAGES)' "
             "'$(BOARD_VENDOR_KERNEL_MODULES_LOAD)' '$(PRODUCT_COPY_FILES)' "
             "'$(DEVICE_MANIFEST_FILE)' '$(PRODUCT_MAX_PAGE_SIZE_SUPPORTED)' "
-            "'$(PRODUCT_BUILD_VENDOR_IMAGE) $(PRODUCT_BUILD_BOOT_IMAGE)' "
+            "'$(PRODUCT_BUILD_VENDOR_IMAGE) $(PRODUCT_BUILD_BOOT_IMAGE) "
+            "$(BOARD_VENDORIMAGE_FILE_SYSTEM_TYPE) $(TARGET_USERIMAGES_SPARSE_EXT_DISABLED)' "
             "'$(BOARD_VENDOR_SEPOLICY_DIRS)' "
             "'$(soong_wifi_hal_interface_combinations)' "
             "'$(soong_wpa_supplicant_8_wifi_hidl_unified_supplicant_service_rc_entry) "
@@ -131,7 +132,7 @@ class VendorProductTest(unittest.TestCase):
             self.assertTrue(all("name" not in profile.attrib for profile in profiles))
         self.assertEqual(ElementTree.parse(self.root / manifest).getroot().get("target-level"), "202504")
         self.assertEqual(pages, "16384")
-        self.assertEqual(images, "true false")
+        self.assertEqual(images, "true false ext4 true")
 
     def test_low_ram_settings_and_zram_are_packaged_in_vendor(self):
         result = self.read_target()

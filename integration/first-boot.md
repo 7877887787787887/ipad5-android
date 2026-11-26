@@ -77,6 +77,47 @@ data configuration requires a separate review and physical verification.
 [Android 16 block device selection](https://android.googlesource.com/platform/system/core/+/android-16.0.0_r1/init/block_dev_initializer.cpp)
 [Android 16 first-stage fstab lookup](https://android.googlesource.com/platform/system/core/+/android-16.0.0_r1/fs_mgr/libfstab/fstab.cpp)
 
+## Package the read-only first-stage diagnostic
+
+Once the matching vendor image and compiled `init_first_stage` are
+available, assemble a first-stage mount diagnostic from Linux. Use the
+first-stage build output that contains `init` and its `SHA256SUMS`.
+The packager also uses `modinfo` and `readelf`.
+
+```sh
+python3 validation/package_j72s_first_stage.py \
+    --kernel /path/to/kernel-artifacts \
+    --init /path/to/first-stage/init \
+    --early-storage /path/to/j72s-early-storage-overlay.tar.gz \
+    --media-image /path/to/dedicated-media.img \
+    --disk-guid DISK_GUID \
+    --system /path/to/system.img \
+    --vendor /path/to/vendor.img \
+    --output /path/to/new-diagnostic
+```
+
+The output contains a small gzip-compressed ramdisk, its board fstab,
+the boot properties for the eventual temporary loader, and a report and
+checksums. The ramdisk includes only the validated ARM64 first-stage
+binary, matching storage modules, mount-point directories, and fstab.
+Android mounts the GSI at `/system` before switching root to it and
+then mounts `/vendor`. Both entries are read-only with journal loading
+disabled. Android fs_mgr can make a temporary writable mount when it
+detects ext4 recovery conditions, so the packager rejects dirty or
+quota-enabled filesystems and selected fstab overrides. A physical
+attempt also requires independently verified write-protection of the
+dedicated external media and verification that the loader supplies
+the expected boot properties.
+
+This artifact is for observing first-stage mounts and Android's attempt
+to hand off to second-stage init. It leaves `/data` unconfigured and UI
+boot unverified. The static checks and manifest describe the selected
+regular-file image. Runtime behavior, the loader, and recovery still
+require hardware validation.
+
+[Android 16 mount and switch-root behavior](https://android.googlesource.com/platform/system/core/+/android-16.0.0_r1/init/first_stage_mount.cpp)
+[Android 16 filesystem preparation](https://android.googlesource.com/platform/system/core/+/android-16.0.0_r1/fs_mgr/fs_mgr.cpp)
+
 ## Gates before a hardware attempt
 
 - [ ] Build the complete J72s vendor image with matching kernel modules and board firmware.

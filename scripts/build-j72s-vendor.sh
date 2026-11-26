@@ -150,5 +150,13 @@ fi
     m vendorimage
     [[ -s $product_out/vendor.img ]] ||
         fail 'Soong returned without producing the J72s vendor.img.'
+    python3 - "$product_out/vendor.img" <<'PY'
+import sys
+
+with open(sys.argv[1], "rb") as image:
+    image.seek(1080)
+    if image.read(2) != b"\x53\xef":
+        raise SystemExit("Expected a raw ext4 vendor image for the external boot media")
+PY
     sha256sum "$product_out/vendor.img"
 )

@@ -95,6 +95,8 @@ add_test(NAME early_usb_storage
     COMMAND Python3::Interpreter -B -m unittest discover -s "${repo}/scripts" -p test_stage_j72s_early_storage.py -v)
 add_test(NAME boot_media
     COMMAND Python3::Interpreter -B -m unittest discover -s "${repo}/validation" -p test_check_j72s_boot_media.py -v)
+add_test(NAME first_stage_package
+    COMMAND Python3::Interpreter -B -m unittest discover -s "${repo}/validation" -p test_package_j72s_first_stage.py -v)
 add_test(NAME clock_audit
     COMMAND Python3::Interpreter -B "${repo}/performance/audit_clock.py" --self-test)
 add_test(NAME ota_verifier
